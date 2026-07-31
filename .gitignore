@@ -3,8 +3,6 @@ bin/
 obj/
 publish/
 
-# Installer output binaries (keep .iss script, exclude compiled setup exe)
-installer/output/
 
 # VS / Rider
 .vs/

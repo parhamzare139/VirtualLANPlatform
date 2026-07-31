@@ -1,0 +1,884 @@
+<Window x:Class="VirtualLANPlatform.UI.Views.TestWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:VirtualLANPlatform.UI.Views"
+        xmlns:chat="clr-namespace:VirtualLANPlatform.Core.Chat"
+        Title="Virtual LAN Platform"
+        Height="720" Width="1100"
+        MinHeight="620" MinWidth="920"
+        FlowDirection="RightToLeft"
+        Background="#1A1D23"
+        FontFamily="Inter, Vazir"
+        Closing="Window_Closing">
+
+    <Window.Resources>
+
+        <!-- ══════════════════════════════════════════
+             SHARED ANIMATED BUTTON TEMPLATES
+        ══════════════════════════════════════════ -->
+
+        <!-- Standard rounded button (used by Btn, GhostBtn) -->
+        <ControlTemplate x:Key="AnimBtn" TargetType="Button">
+            <Border x:Name="Root"
+                    Background="{TemplateBinding Background}"
+                    CornerRadius="6"
+                    Padding="{TemplateBinding Padding}"
+                    RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <ScaleTransform x:Name="Sc" ScaleX="1" ScaleY="1"/>
+                </Border.RenderTransform>
+                <ContentPresenter HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+                <EventTrigger RoutedEvent="PreviewMouseDown">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="0.95" Duration="0:0:0.08"/>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="0.95" Duration="0:0:0.08"/>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+                <EventTrigger RoutedEvent="PreviewMouseUp">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.22"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.3" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.22"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.3" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+                <EventTrigger RoutedEvent="MouseLeave">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.15"/>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.15"/>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
+        <!-- Pill button for voice/media controls -->
+        <ControlTemplate x:Key="AnimPillBtn" TargetType="Button">
+            <Border x:Name="Root"
+                    Background="{TemplateBinding Background}"
+                    CornerRadius="18"
+                    Padding="{TemplateBinding Padding}"
+                    RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <ScaleTransform x:Name="Sc" ScaleX="1" ScaleY="1"/>
+                </Border.RenderTransform>
+                <ContentPresenter HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+                <EventTrigger RoutedEvent="PreviewMouseDown">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="0.93" Duration="0:0:0.08"/>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="0.93" Duration="0:0:0.08"/>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+                <EventTrigger RoutedEvent="PreviewMouseUp">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.28"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.4" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.28"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.4" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+                <EventTrigger RoutedEvent="MouseLeave">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.15"/>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.15"/>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter TargetName="Root" Property="Background" Value="#1E2025"/>
+                    <Setter Property="Foreground" Value="#3A3D44"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
+        <!-- Tab underline button -->
+        <ControlTemplate x:Key="AnimTabBtn" TargetType="Button">
+            <Border x:Name="Root"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    Padding="{TemplateBinding Padding}"
+                    RenderTransformOrigin="0.5,1">
+                <Border.RenderTransform>
+                    <ScaleTransform x:Name="Sc" ScaleX="1" ScaleY="1"/>
+                </Border.RenderTransform>
+                <ContentPresenter HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+                <EventTrigger RoutedEvent="PreviewMouseDown">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="0.92" Duration="0:0:0.07"/>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="0.92" Duration="0:0:0.07"/>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+                <EventTrigger RoutedEvent="PreviewMouseUp">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.22"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.35" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.22"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.35" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+                <EventTrigger RoutedEvent="MouseLeave">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.12"/>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.12"/>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
+        <!-- ══════════════════════════════════════════
+             BUTTON STYLES
+        ══════════════════════════════════════════ -->
+
+        <!-- Primary blue button -->
+        <Style x:Key="Btn" TargetType="Button">
+            <Setter Property="Background"      Value="#5865F2"/>
+            <Setter Property="Foreground"      Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding"         Value="16,8"/>
+            <Setter Property="FontSize"        Value="13"/>
+            <Setter Property="FontWeight"      Value="SemiBold"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="Template"        Value="{StaticResource AnimBtn}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#4752C4"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#2A2D35"/>
+                    <Setter Property="Foreground" Value="#4E5058"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Red danger button (inherits Btn template + animation) -->
+        <Style x:Key="DangerBtn" TargetType="Button" BasedOn="{StaticResource Btn}">
+            <Setter Property="Background" Value="#ED4245"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#C03537"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#2A2D35"/>
+                    <Setter Property="Foreground" Value="#4E5058"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Ghost/secondary button -->
+        <Style x:Key="GhostBtn" TargetType="Button">
+            <Setter Property="Background"      Value="#2E3035"/>
+            <Setter Property="Foreground"      Value="#B5BAC1"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding"         Value="10,5"/>
+            <Setter Property="FontSize"        Value="12"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="Template"        Value="{StaticResource AnimBtn}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#3A3D44"/>
+                    <Setter Property="Foreground" Value="#DBDEE1"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#1E2025"/>
+                    <Setter Property="Foreground" Value="#3A3D44"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Voice/media pill button -->
+        <Style x:Key="VoiceBtn" TargetType="Button">
+            <Setter Property="Background"      Value="#248046"/>
+            <Setter Property="Foreground"      Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding"         Value="14,8"/>
+            <Setter Property="FontSize"        Value="12.5"/>
+            <Setter Property="FontWeight"      Value="Medium"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="Template"        Value="{StaticResource AnimPillBtn}"/>
+        </Style>
+
+        <!-- Tab underline button -->
+        <Style x:Key="TabBtn" TargetType="Button">
+            <Setter Property="Background"      Value="Transparent"/>
+            <Setter Property="Foreground"      Value="#80848E"/>
+            <Setter Property="BorderThickness" Value="0,0,0,2"/>
+            <Setter Property="BorderBrush"     Value="Transparent"/>
+            <Setter Property="Padding"         Value="4,0,4,6"/>
+            <Setter Property="FontSize"        Value="13"/>
+            <Setter Property="FontFamily"      Value="Vazir"/>
+            <Setter Property="FontWeight"      Value="SemiBold"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="Template"        Value="{StaticResource AnimTabBtn}"/>
+        </Style>
+
+        <!-- ══════════════════════════════════════════
+             TEXT BOX WITH ROUNDED CORNERS
+        ══════════════════════════════════════════ -->
+        <Style x:Key="Inp" TargetType="TextBox">
+            <Setter Property="Background"             Value="#1E2025"/>
+            <Setter Property="Foreground"             Value="#DBDEE1"/>
+            <Setter Property="CaretBrush"             Value="#DBDEE1"/>
+            <Setter Property="SelectionBrush"         Value="#5865F2"/>
+            <Setter Property="BorderBrush"            Value="#3A3D44"/>
+            <Setter Property="BorderThickness"        Value="1"/>
+            <Setter Property="Padding"                Value="10,0"/>
+            <Setter Property="FontSize"               Value="13"/>
+            <Setter Property="FontFamily"             Value="Vazir"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="7"
+                                Padding="{TemplateBinding Padding}">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Focusable="False"
+                                          HorizontalScrollBarVisibility="Hidden"
+                                          VerticalScrollBarVisibility="Hidden"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#5865F2"/>
+                                <Setter TargetName="Root" Property="Background"  Value="#22252C"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ══════════════════════════════════════════
+             PANEL STYLES
+        ══════════════════════════════════════════ -->
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background"   Value="#23262D"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding"      Value="18"/>
+        </Style>
+
+        <Style x:Key="SideCard" TargetType="Border">
+            <Setter Property="Background"   Value="#1E2025"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding"      Value="12"/>
+        </Style>
+
+        <Style x:Key="Lbl" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#80848E"/>
+            <Setter Property="FontSize"   Value="11"/>
+        </Style>
+
+        <Style x:Key="Val" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#DBDEE1"/>
+            <Setter Property="FontSize"   Value="12"/>
+        </Style>
+
+        <!-- ══════════════════════════════════════════
+             DATA TEMPLATES
+        ══════════════════════════════════════════ -->
+
+        <!-- Chat message bubble -->
+        <DataTemplate DataType="{x:Type chat:ChatMessage}">
+            <Border Padding="0,5">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Sender}"
+                                   Foreground="#5865F2" FontWeight="Bold"
+                                   FontSize="12" Margin="0,0,8,2" FontFamily="Vazir"/>
+                        <TextBlock Text="{Binding SentAt, StringFormat='HH:mm'}"
+                                   Foreground="#4E5058" FontSize="10"
+                                   FontFamily="Inter"
+                                   VerticalAlignment="Bottom" Margin="0,0,0,2"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Text}"
+                               Foreground="#DBDEE1" FontSize="13"
+                               FontFamily="Vazir"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <!-- Incoming/outgoing file card -->
+        <DataTemplate DataType="{x:Type local:FileNotification}">
+            <Border Background="#2A2D35" CornerRadius="8"
+                    Padding="12,9" Margin="0,3">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Background="#5865F2" CornerRadius="8"
+                            Width="38" Height="38" Margin="0,0,10,0">
+                        <TextBlock Text="📎" FontSize="16"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding FileName}"
+                                   Foreground="#DBDEE1" FontWeight="SemiBold"
+                                   FontSize="13" FontFamily="Vazir"
+                                   TextWrapping="NoWrap"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                            <TextBlock Text="{Binding SizeText}"
+                                       Foreground="#80848E" FontSize="11" FontFamily="Inter"/>
+                            <TextBlock Text="  ·  " Foreground="#4E5058" FontSize="11"/>
+                            <TextBlock Text="{Binding Status}"
+                                       Foreground="#80848E" FontSize="11" FontFamily="Vazir"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <Button Grid.Column="2"
+                            Content="⬇ دانلود"
+                            IsEnabled="{Binding CanDownload}"
+                            Visibility="{Binding DownloadVisibility}"
+                            Style="{StaticResource Btn}"
+                            Background="#248046"
+                            Padding="10,5" FontSize="12"
+                            Margin="12,0,0,0"
+                            Click="DownloadFile_Click"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="54"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ══════════════════════════════════════════
+             TOP BAR
+        ══════════════════════════════════════════ -->
+        <Border Grid.Row="0" Background="#111214">
+            <Grid Margin="18,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Logo mark -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                            FlowDirection="LeftToRight">
+                    <Border Width="32" Height="32" CornerRadius="8" Margin="0,0,9,0">
+                        <Border.Background>
+                            <ImageBrush ImageSource="pack://application:,,,/Assets/logo.png"
+                                        Stretch="UniformToFill"/>
+                        </Border.Background>
+                    </Border>
+                    <TextBlock Text="VirtualLAN" Foreground="White"
+                               FontSize="15" FontWeight="Bold"
+                               FontFamily="Inter"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Status indicator -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            FlowDirection="RightToLeft">
+                    <Ellipse Width="10" Height="10" Margin="6,0,0,0">
+                        <Ellipse.Fill>
+                            <SolidColorBrush x:Name="StatusDot" Color="#747F8D"/>
+                        </Ellipse.Fill>
+                    </Ellipse>
+                    <TextBlock x:Name="StatusLabel" Text="آماده"
+                               Foreground="#DBDEE1" FontSize="13"
+                               FontFamily="Vazir"/>
+                </StackPanel>
+
+                <!-- Lobby actions: username input -->
+                <StackPanel x:Name="LobbyHeaderPanel" Grid.Column="2"
+                            Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="نام کاربر:" Foreground="#80848E" FontSize="12"
+                               FontFamily="Vazir"
+                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBox x:Name="UsernameBox" Text="کاربر"
+                             Style="{StaticResource Inp}"
+                             Width="175" Height="34"/>
+                    <Button x:Name="SaveUsernameBtn" Content="ذخیره"
+                            Style="{StaticResource GhostBtn}"
+                            FontFamily="Vazir"
+                            Margin="6,0,0,0" Height="34" Padding="12,0"
+                            Click="SaveUsername_Click"/>
+                </StackPanel>
+
+                <!-- Room actions: code + IP + leave -->
+                <StackPanel x:Name="RoomHeaderPanel" Grid.Column="2"
+                            Orientation="Horizontal" Visibility="Collapsed"
+                            VerticalAlignment="Center">
+
+                    <TextBlock Text="کد:" Foreground="#80848E" FontSize="11"
+                               FontFamily="Vazir"
+                               VerticalAlignment="Center" Margin="0,0,7,0"/>
+                    <Border Background="#1E2025" CornerRadius="6"
+                            Padding="11,5" Margin="0,0,5,0">
+                        <TextBlock x:Name="CodeDisplay" Text="—"
+                                   Foreground="#57F287" FontFamily="Consolas"
+                                   FontSize="13" FontWeight="Bold"
+                                   FlowDirection="LeftToRight"/>
+                    </Border>
+                    <Button x:Name="CopyCodeBtn" Content="کپی کد"
+                            Style="{StaticResource GhostBtn}"
+                            FontFamily="Vazir"
+                            IsEnabled="False" Margin="0,0,12,0"
+                            Click="CopyCode_Click"/>
+
+                    <Rectangle Width="1" Height="18" Fill="#3A3D44" Margin="0,0,12,0"/>
+
+                    <TextBlock Text="IP بازی:" Foreground="#80848E" FontSize="11"
+                               FontFamily="Vazir"
+                               VerticalAlignment="Center" Margin="0,0,7,0"/>
+                    <Border Background="#1E2025" CornerRadius="6"
+                            Padding="11,5" Margin="0,0,5,0">
+                        <TextBlock x:Name="HostVipDisplay" Text="10.77.0.1"
+                                   Foreground="#57F287" FontFamily="Consolas"
+                                   FontSize="13" FontWeight="Bold"
+                                   FlowDirection="LeftToRight"/>
+                    </Border>
+                    <Button x:Name="CopyHostVipBtn" Content="کپی IP"
+                            Style="{StaticResource GhostBtn}"
+                            FontFamily="Vazir"
+                            Margin="0,0,12,0"
+                            Click="CopyHostVip_Click"/>
+
+                    <Rectangle Width="1" Height="18" Fill="#3A3D44" Margin="0,0,12,0"/>
+
+                    <Button x:Name="LeaveCloseBtn" Content="خروج از Room"
+                            Style="{StaticResource DangerBtn}"
+                            FontFamily="Vazir"
+                            IsEnabled="False" Padding="12,6" FontSize="12"
+                            Click="LeaveClose_Click"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ══════════════════════════════════════════
+             MAIN CONTENT
+        ══════════════════════════════════════════ -->
+        <Grid Grid.Row="1" Margin="16,14,16,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="14"/>
+                <ColumnDefinition Width="258"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ── LEFT PANEL ────────────────────────── -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Lobby action cards -->
+                <StackPanel x:Name="LobbyActions" Grid.Row="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Create Room card -->
+                        <Border Grid.Column="0" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                                    <Border Background="#5865F2" CornerRadius="10"
+                                            Width="42" Height="42" Margin="0,0,13,0">
+                                        <TextBlock Text="🏠" FontSize="20"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="ایجاد Room"
+                                                   Foreground="White" FontSize="14"
+                                                   FontFamily="Vazir"
+                                                   FontWeight="Bold"/>
+                                        <TextBlock Text="نقش: هاست"
+                                                   Foreground="#80848E" FontSize="11"
+                                                   FontFamily="Vazir"
+                                                   Margin="0,3,0,0"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <TextBlock Text="یک Room جدید بسازید و کد را با دوستانتان به اشتراک بگذارید."
+                                           Foreground="#80848E" FontSize="12.5"
+                                           FontFamily="Vazir"
+                                           TextWrapping="Wrap" Margin="0,0,0,16"/>
+                                <Button x:Name="CreateBtn" Content="ساخت Room"
+                                        Style="{StaticResource Btn}"
+                                        FontFamily="Vazir"
+                                        HorizontalAlignment="Stretch"
+                                        Padding="0,11"
+                                        Click="CreateRoom_Click"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Join Room card -->
+                        <Border Grid.Column="2" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                                    <Border Background="#248046" CornerRadius="10"
+                                            Width="42" Height="42" Margin="0,0,13,0">
+                                        <TextBlock Text="🔗" FontSize="20"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="اتصال به Room"
+                                                   Foreground="White" FontSize="14"
+                                                   FontFamily="Vazir"
+                                                   FontWeight="Bold"/>
+                                        <TextBlock Text="نقش: مهمان"
+                                                   Foreground="#80848E" FontSize="11"
+                                                   FontFamily="Vazir"
+                                                   Margin="0,3,0,0"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <TextBlock Text="کد دریافتی از هاست را وارد کنید."
+                                           Foreground="#80848E" FontSize="12.5"
+                                           FontFamily="Vazir"
+                                           TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="JoinCodeBox"
+                                             Style="{StaticResource Inp}"
+                                             FlowDirection="LeftToRight"
+                                             FontFamily="Consolas" FontSize="13"
+                                             Height="38"/>
+                                    <Button Grid.Column="2" x:Name="JoinBtn"
+                                            Content="اتصال"
+                                            FontFamily="Vazir"
+                                            Padding="16,0" Height="38"
+                                            Click="Join_Click">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource Btn}">
+                                                <Setter Property="Background" Value="#248046"/>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="#1a6335"/>
+                                                    </Trigger>
+                                                    <Trigger Property="IsEnabled" Value="False">
+                                                        <Setter Property="Background" Value="#2A2D35"/>
+                                                        <Setter Property="Foreground" Value="#4E5058"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Voice + File strip -->
+                <Border Grid.Row="2" Background="#23262D" CornerRadius="10" Padding="14,10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="🎙" FontSize="15" Margin="0,0,7,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="صدا و فایل"
+                                       Foreground="#DBDEE1" FontSize="12.5"
+                                       FontFamily="Vazir"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="1" x:Name="VoiceStatus" Text="—"
+                                   Foreground="#4E5058" FontSize="11"
+                                   FontFamily="Vazir"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Center"/>
+
+                        <!-- Voice + File buttons (pill shaped) -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                            <Button x:Name="MicBtn"
+                                    Content="🎤  میکروفون"
+                                    Style="{StaticResource VoiceBtn}"
+                                    Background="#248046"
+                                    IsEnabled="False" Margin="0,0,7,0"
+                                    Click="Mic_Click"/>
+                            <Button x:Name="SpeakerBtn"
+                                    Content="🔊  اسپیکر"
+                                    Style="{StaticResource VoiceBtn}"
+                                    Background="#248046"
+                                    IsEnabled="False" Margin="0,0,7,0"
+                                    Click="Speaker_Click"/>
+                            <Button x:Name="SendFileBtn"
+                                    Content="📎  ارسال فایل"
+                                    Style="{StaticResource VoiceBtn}"
+                                    Background="#2E3035"
+                                    IsEnabled="False"
+                                    Click="SendFile_Click"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Chat / Log tab panel -->
+                <Border Grid.Row="4" Background="#23262D" CornerRadius="10" Padding="0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="46"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Tab header bar -->
+                        <Border Grid.Row="0" BorderBrush="#1A1D23"
+                                BorderThickness="0,0,0,1" Padding="14,0">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="TabLogBtn" Content="رویدادها"
+                                        Style="{StaticResource TabBtn}"
+                                        BorderBrush="#5865F2" Foreground="White"
+                                        Margin="0,0,20,0"
+                                        Click="TabLog_Click"/>
+                                <Button x:Name="TabChatBtn" Content="چت و فایل"
+                                        Style="{StaticResource TabBtn}"
+                                        Click="TabChat_Click"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Log list -->
+                        <ListBox Grid.Row="1" x:Name="LogList"
+                                 Background="Transparent" BorderThickness="0"
+                                 Padding="12,6"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Background"   Value="Transparent"/>
+                                    <Setter Property="Padding"      Value="0,1"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <ContentPresenter/>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Foreground="#4E5058"
+                                               FontSize="11" FontFamily="Consolas"
+                                               TextWrapping="Wrap"
+                                               FlowDirection="LeftToRight"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <!-- Chat/file list -->
+                        <ListBox Grid.Row="1" x:Name="ChatList"
+                                 Background="Transparent" BorderThickness="0"
+                                 Padding="12,6" Visibility="Collapsed"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 VirtualizingPanel.ScrollUnit="Pixel">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Padding"    Value="0"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <ContentPresenter/>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                        </ListBox>
+
+                        <!-- Chat input -->
+                        <Grid Grid.Row="2" x:Name="ChatInputArea"
+                              Visibility="Collapsed" Margin="10,0,10,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="ChatInput"
+                                     Style="{StaticResource Inp}"
+                                     Height="38"
+                                     KeyDown="ChatInput_KeyDown"/>
+                            <Button Grid.Column="2" Content="ارسال"
+                                    Style="{StaticResource Btn}"
+                                    FontFamily="Vazir"
+                                    Padding="14,0" Height="38"
+                                    Click="SendChat_Click"/>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- ── RIGHT SIDEBAR ──────────────────────── -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="12"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Members list -->
+                <Border Grid.Row="0" Style="{StaticResource SideCard}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="اعضای Room"
+                                   Foreground="#80848E" FontSize="11"
+                                   FontFamily="Vazir"
+                                   FontWeight="Bold" Margin="0,0,0,10"
+                                   TextAlignment="Right"/>
+
+                        <ListBox Grid.Row="1" x:Name="MemberList"
+                                 Background="Transparent" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Background"  Value="Transparent"/>
+                                    <Setter Property="Padding"     Value="0,4"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <ContentPresenter/>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse Width="8" Height="8"
+                                                 Fill="#23A55A" Margin="0,0,9,0"/>
+                                        <TextBlock Text="{Binding}"
+                                                   Foreground="#DBDEE1" FontSize="13"
+                                                   FontFamily="Vazir"
+                                                   FlowDirection="LeftToRight"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+
+                <!-- Connection status -->
+                <Border Grid.Row="2" Style="{StaticResource SideCard}">
+                    <StackPanel>
+                        <TextBlock Text="وضعیت اتصال"
+                                   Foreground="#80848E" FontSize="11"
+                                   FontFamily="Vazir"
+                                   FontWeight="Bold" Margin="0,0,0,10"/>
+
+                        <Grid Margin="0,0,0,7">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="نقش" Style="{StaticResource Lbl}" FontFamily="Vazir"/>
+                            <TextBlock x:Name="DbgRole" Grid.Column="1" Text="—"
+                                       Style="{StaticResource Val}" FontFamily="Vazir"
+                                       FlowDirection="LeftToRight"/>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,7">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="IP مجازی" Style="{StaticResource Lbl}" FontFamily="Vazir"/>
+                            <TextBlock x:Name="DbgVirtualIP" Grid.Column="1" Text="—"
+                                       Foreground="#57F287" FontFamily="Consolas"
+                                       FontSize="12" FlowDirection="LeftToRight"/>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,7">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="تعداد Peer" Style="{StaticResource Lbl}" FontFamily="Vazir"/>
+                            <TextBlock x:Name="DbgPeers" Grid.Column="1" Text="0"
+                                       Style="{StaticResource Val}" FontFamily="Inter"/>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,7">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="رمزنگاری" Style="{StaticResource Lbl}" FontFamily="Vazir"/>
+                            <TextBlock x:Name="DbgEncryption" Grid.Column="1"
+                                       Text="🔓" FontSize="12"
+                                       Foreground="#FAA61A" FontFamily="Inter"
+                                       FlowDirection="LeftToRight"/>
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="WinTun" Style="{StaticResource Lbl}" FontFamily="Inter"/>
+                            <TextBlock x:Name="DbgWinTun" Grid.Column="1" Text="—"
+                                       Style="{StaticResource Val}" FontFamily="Inter"
+                                       FlowDirection="LeftToRight"/>
+                        </Grid>
+
+                        <!-- Hidden technical fields for code-behind -->
+                        <TextBlock x:Name="DbgLocalIP"    Visibility="Collapsed"/>
+                        <TextBlock x:Name="DbgPublicIP"   Visibility="Collapsed"/>
+                        <TextBlock x:Name="DbgLocalPort"  Visibility="Collapsed"/>
+                        <TextBlock x:Name="DbgExtPort"    Visibility="Collapsed"/>
+                        <TextBlock x:Name="DbgNatType"    Visibility="Collapsed"/>
+                        <TextBlock x:Name="DbgVLanStatus" Visibility="Collapsed"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- ══════════════════════════════════════════
+             FOOTER (hidden in room mode)
+        ══════════════════════════════════════════ -->
+        <Border x:Name="Footer" Grid.Row="2" Padding="16,6">
+            <Grid>
+                <TextBlock Text="Virtual LAN Platform  v1.0.0"
+                           Foreground="#2E3035" FontSize="11"
+                           FontFamily="Inter"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"/>
+                <Button Content="بررسی بروزرسانی"
+                        FontFamily="Vazir" FontSize="10"
+                        Foreground="#4E5058" Background="Transparent"
+                        BorderThickness="0" Cursor="Hand"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center"
+                        Click="CheckUpdate_Click"/>
+            </Grid>
+        </Border>
+
+    </Grid>
+</Window>

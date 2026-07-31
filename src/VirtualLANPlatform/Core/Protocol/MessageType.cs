@@ -1,0 +1,18 @@
+namespace VirtualLANPlatform.Core.Protocol;
+
+public enum MessageType : byte
+{
+    Handshake        = 0x01,
+    KeyExchange      = 0x02, // Reserved — Phase 5 (Encryption)
+    RoomControl      = 0x03,
+    MemberSync       = 0x04,
+    TextChat         = 0x05,
+    VoiceData        = 0x06,
+    FileInfo         = 0x07,
+    FileChunk        = 0x08,
+    VirtualLanPacket = 0x09,
+    KeepAlive        = 0x0A,
+    Error            = 0x0B,
+    Disconnect       = 0x0C,
+    FileAccept       = 0x0D
+}

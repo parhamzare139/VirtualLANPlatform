@@ -1,0 +1,20 @@
+# Build output
+bin/
+obj/
+publish/
+
+# Installer output binaries (keep .iss script, exclude compiled setup exe)
+installer/output/
+
+# VS / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log

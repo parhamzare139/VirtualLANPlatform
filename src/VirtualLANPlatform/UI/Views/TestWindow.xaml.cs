@@ -717,7 +717,7 @@ public partial class TestWindow : Window
 
     private void SetTabHighlight(System.Windows.Controls.Button active)
     {
-        var on  = new SolidColorBrush(Color.FromRgb(0x58, 0x65, 0xF2));
+        var on  = new SolidColorBrush(Color.FromRgb(0x43, 0x61, 0xEE));
         var off = new SolidColorBrush(Colors.Transparent);
         var white = new SolidColorBrush(Colors.White);
         var dim   = new SolidColorBrush(Color.FromRgb(0xB9, 0xBB, 0xBE));

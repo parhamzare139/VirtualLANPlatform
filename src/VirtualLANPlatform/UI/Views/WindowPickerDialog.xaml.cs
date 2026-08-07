@@ -35,8 +35,8 @@ public partial class WindowPickerDialog : Window
 
     private Border? _selected;
 
-    private static readonly Color SelectedBg   = Color.FromRgb(0x40, 0x44, 0x7A);
-    private static readonly Color SelectedBdr  = Color.FromRgb(0x58, 0x65, 0xF2);
+    private static readonly Color SelectedBg   = Color.FromRgb(0x28, 0x38, 0x8F);
+    private static readonly Color SelectedBdr  = Color.FromRgb(0x43, 0x61, 0xEE);
     private static readonly Color DefaultBg    = Color.FromRgb(0x1E, 0x1F, 0x22);
     private static readonly Color HoverBg      = Color.FromRgb(0x31, 0x33, 0x38);
 

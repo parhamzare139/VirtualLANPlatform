@@ -58,12 +58,12 @@
                             </StackPanel>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="Box"  Property="Background"    Value="#5865F2"/>
-                                    <Setter TargetName="Box"  Property="BorderBrush"   Value="#5865F2"/>
+                                    <Setter TargetName="Box"  Property="Background"    Value="#4361EE"/>
+                                    <Setter TargetName="Box"  Property="BorderBrush"   Value="#4361EE"/>
                                     <Setter TargetName="Tick" Property="Visibility"    Value="Visible"/>
                                 </Trigger>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Box" Property="BorderBrush" Value="#8891F2"/>
+                                    <Setter TargetName="Box" Property="BorderBrush" Value="#7B9EFF"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -77,7 +77,7 @@
                         Margin="16,8,16,16">
                 <Button x:Name="OkBtn" Content="شروع اشتراک" IsDefault="True"
                         Click="Ok_Click" Cursor="Hand"
-                        Background="#5865F2" Foreground="White"
+                        Background="#4361EE" Foreground="White"
                         BorderThickness="0" Padding="18,9" FontSize="13" Margin="0,0,8,0">
                     <Button.Style>
                         <Style TargetType="Button">
@@ -91,7 +91,7 @@
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#4752C4"/>
+                                                <Setter TargetName="Bd" Property="Background" Value="#3650D8"/>
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>

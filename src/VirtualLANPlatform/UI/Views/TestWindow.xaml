@@ -168,7 +168,7 @@
 
         <!-- Primary blue button -->
         <Style x:Key="Btn" TargetType="Button">
-            <Setter Property="Background"      Value="#5865F2"/>
+            <Setter Property="Background"      Value="#4361EE"/>
             <Setter Property="Foreground"      Value="White"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding"         Value="16,8"/>
@@ -178,7 +178,7 @@
             <Setter Property="Template"        Value="{StaticResource AnimBtn}"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#4752C4"/>
+                    <Setter Property="Background" Value="#3650D8"/>
                 </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
                     <Setter Property="Background" Value="#2A2D35"/>
@@ -255,7 +255,7 @@
             <Setter Property="Background"             Value="#1E2025"/>
             <Setter Property="Foreground"             Value="#DBDEE1"/>
             <Setter Property="CaretBrush"             Value="#DBDEE1"/>
-            <Setter Property="SelectionBrush"         Value="#5865F2"/>
+            <Setter Property="SelectionBrush"         Value="#4361EE"/>
             <Setter Property="BorderBrush"            Value="#3A3D44"/>
             <Setter Property="BorderThickness"        Value="1"/>
             <Setter Property="Padding"                Value="10,0"/>
@@ -279,7 +279,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsFocused" Value="True">
-                                <Setter TargetName="Root" Property="BorderBrush" Value="#5865F2"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#4361EE"/>
                                 <Setter TargetName="Root" Property="Background"  Value="#22252C"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -331,7 +331,7 @@
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{Binding Sender}"
-                                   Foreground="#5865F2" FontWeight="Bold"
+                                   Foreground="#4361EE" FontWeight="Bold"
                                    FontSize="12" Margin="0,0,8,2" FontFamily="Vazir"/>
                         <TextBlock Text="{Binding SentAt, StringFormat='HH:mm'}"
                                    Foreground="#4E5058" FontSize="10"
@@ -364,7 +364,7 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Background="#5865F2" CornerRadius="8"
+                    <Border Grid.Column="0" Background="#4361EE" CornerRadius="8"
                             Width="38" Height="38" Margin="0,0,10,0">
                         <TextBlock Text="📎" FontSize="16"
                                    HorizontalAlignment="Center"
@@ -585,7 +585,7 @@
                             </Border.Triggers>
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
-                                    <Border Background="#5865F2" CornerRadius="10"
+                                    <Border Background="#4361EE" CornerRadius="10"
                                             Width="42" Height="42" Margin="0,0,13,0">
                                         <TextBlock Text="🏠" FontSize="20"
                                                    HorizontalAlignment="Center"
@@ -763,7 +763,7 @@
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <Button x:Name="TabLogBtn" Content="رویدادها"
                                         Style="{StaticResource TabBtn}"
-                                        BorderBrush="#5865F2" Foreground="White"
+                                        BorderBrush="#4361EE" Foreground="White"
                                         Margin="0,0,20,0"
                                         Click="TabLog_Click"/>
                                 <Button x:Name="TabChatBtn" Content="چت و فایل"

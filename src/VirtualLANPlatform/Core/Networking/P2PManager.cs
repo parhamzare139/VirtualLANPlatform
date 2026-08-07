@@ -76,17 +76,17 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
         IsRunning = true;
         StartPollLoop();
-        StatusChanged?.Invoke("در حال آماده‌سازی NAT...");
+        StatusChanged?.Invoke("در حال کشف IP عمومی و NAT...");
 
         string localIp = GetLocalIP();
         await _nat.PrepareHostAsync(port, localIp, ct);
 
-        string code = ConnectionCodeEngine.Encode(IPAddress.Parse(localIp), port);
+        // Use public IP if discovered; otherwise fall back to local IP (LAN-only mode)
+        string codeIp   = _nat.Status.PublicIP is { } pub && pub != "کشف نشد"
+                          ? pub : localIp;
+        ushort codePort = _nat.Status.ExternalPort ?? port;
 
-        _ = Task.Run(async () => {
-            IPAddress? pub = await _ipDisc.GetPublicIPAsync(ct);
-            if (pub != null) _nat.Status.PublicIP = pub.ToString();
-        }, ct);
+        string code = ConnectionCodeEngine.Encode(IPAddress.Parse(codeIp), codePort);
 
         StatusChanged?.Invoke("آماده — منتظر اتصال");
         return (true, code);

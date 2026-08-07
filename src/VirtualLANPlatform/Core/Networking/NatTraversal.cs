@@ -31,56 +31,63 @@ public sealed class NatTraversal(UPnPManager upnp, PublicIPDiscovery ipDiscovery
     public NatStatus Status { get; } = new();
 
     /// <summary>
-    /// Sets local address immediately and runs public-IP + UPnP in the background.
-    /// Returns instantly so the Host UI is never blocked.
+    /// Discovers public IP and attempts UPnP port mapping, then returns.
+    /// Capped at 8 seconds total so Host UI is never blocked too long.
     /// </summary>
-    public Task<NatResult> PrepareHostAsync(
+    public async Task<NatResult> PrepareHostAsync(
         ushort localPort, string localIp, CancellationToken ct = default)
     {
         Status.LocalIP   = localIp;
         Status.LocalPort = localPort;
-        Status.NatType   = "در حال بررسی (background)...";
+        Status.NatType   = "در حال بررسی NAT...";
 
-        // Fire-and-forget background discovery — capped at 10 s total
-        _ = Task.Run(async () =>
+        try
         {
-            try
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(8));
+            var token = cts.Token;
+
+            IPAddress? publicIp = await ipDiscovery.GetPublicIPAsync(token)
+                .ConfigureAwait(false);
+            Status.PublicIP = publicIp?.ToString() ?? "کشف نشد";
+
+            if (publicIp == null)
             {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts.CancelAfter(TimeSpan.FromSeconds(10));
-                var token = cts.Token;
-
-                IPAddress? publicIp = await ipDiscovery.GetPublicIPAsync(token)
-                    .ConfigureAwait(false);
-                Status.PublicIP = publicIp?.ToString() ?? "کشف نشد";
-
-                if (publicIp != null)
-                {
-                    Status.UPnPFound = await upnp.TryDiscoverAsync(token).ConfigureAwait(false);
-                    if (Status.UPnPFound)
-                    {
-                        Status.UPnPMapped = await upnp.AddPortMappingAsync(
-                            localPort, localPort, localIp, "Virtual LAN Platform", token)
-                            .ConfigureAwait(false);
-                        Status.ExternalPort = localPort;
-                        Status.NatType = Status.UPnPMapped
-                            ? "UPnP — Port Mapping موفق"
-                            : "UPnP پیدا شد اما Mapping شکست خورد";
-                    }
-                    else
-                    {
-                        Status.NatType = "UPnP Gateway شناسایی نشد";
-                    }
-                }
-                else
-                {
-                    Status.NatType = "Public IP کشف نشد — LAN only";
-                }
+                Status.NatType = "Public IP کشف نشد — LAN only";
+                return NatResult.NoPublicIP;
             }
-            catch { Status.NatType = "NAT discovery لغو شد"; }
-        }, ct);
 
-        return Task.FromResult(NatResult.Success);
+            Status.UPnPFound = await upnp.TryDiscoverAsync(token).ConfigureAwait(false);
+            if (Status.UPnPFound)
+            {
+                Status.UPnPMapped = await upnp.AddPortMappingAsync(
+                    localPort, localPort, localIp, "Virtual LAN Platform", token)
+                    .ConfigureAwait(false);
+                Status.ExternalPort = localPort;
+                Status.NatType = Status.UPnPMapped
+                    ? "UPnP — Port Mapping موفق"
+                    : "UPnP پیدا شد اما Mapping شکست خورد";
+            }
+            else
+            {
+                Status.ExternalPort = localPort;
+                Status.NatType = "UPnP یافت نشد — تلاش مستقیم";
+            }
+
+            return NatResult.Success;
+        }
+        catch (OperationCanceledException)
+        {
+            Status.ExternalPort = localPort;
+            Status.NatType = "NAT discovery Timeout";
+            return NatResult.UPnPFailed;
+        }
+        catch
+        {
+            Status.ExternalPort = localPort;
+            Status.NatType = "خطا در NAT discovery";
+            return NatResult.UPnPFailed;
+        }
     }
 
     /// <summary>

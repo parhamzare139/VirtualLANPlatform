@@ -416,9 +416,10 @@ public partial class TestWindow : Window
         try
         {
             uint v = VirtualAdapter.GetDriverVersion();
-            DbgWinTun.Text = v == 0 ? "نصب نشده" : $"{v >> 16}.{v & 0xFFFF}";
+            // v==0 means DLL loaded but no adapter active yet — driver loads on first connect
+            DbgWinTun.Text = v == 0 ? "آماده" : $"{v >> 16}.{v & 0xFFFF}";
         }
-        catch { DbgWinTun.Text = "خطا در بارگذاری"; }
+        catch { DbgWinTun.Text = "DLL یافت نشد"; }
     }
 
     // ── Button handlers ───────────────────────────────────────────────────────

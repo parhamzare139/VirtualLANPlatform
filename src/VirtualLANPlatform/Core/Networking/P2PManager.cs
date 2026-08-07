@@ -62,7 +62,11 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
     // ── Host ──────────────────────────────────────────────────────────────────
 
-    public async Task<(bool Ok, string Code)> StartAsHostAsync(
+    /// <summary>
+    /// Returns LanCode (local IP — works on same machine and same LAN)
+    /// and InternetCode (public IP — works over the internet when UPnP/port-forward is active).
+    /// </summary>
+    public async Task<(bool Ok, string LanCode, string InternetCode)> StartAsHostAsync(
         string username, ushort port, CancellationToken ct = default)
     {
         Role = PeerRole.Host;
@@ -71,7 +75,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
         if (!_net.Start(port))
         {
             ConnectionFailed?.Invoke("Host شروع نشد", $"پورت {port} در دسترس نیست.");
-            return (false, "");
+            return (false, "", "");
         }
 
         IsRunning = true;
@@ -81,15 +85,16 @@ public sealed class P2PManager : INetEventListener, IDisposable
         string localIp = GetLocalIP();
         await _nat.PrepareHostAsync(port, localIp, ct);
 
-        // Use public IP if discovered; otherwise fall back to local IP (LAN-only mode)
-        string codeIp   = _nat.Status.PublicIP is { } pub && pub != "کشف نشد"
-                          ? pub : localIp;
-        ushort codePort = _nat.Status.ExternalPort ?? port;
-
-        string code = ConnectionCodeEngine.Encode(IPAddress.Parse(codeIp), codePort);
+        string lanCode      = ConnectionCodeEngine.Encode(IPAddress.Parse(localIp), port);
+        string internetCode = "";
+        if (_nat.Status.PublicIP is { } pub && pub != "کشف نشد")
+        {
+            ushort extPort = _nat.Status.ExternalPort ?? port;
+            internetCode = ConnectionCodeEngine.Encode(IPAddress.Parse(pub), extPort);
+        }
 
         StatusChanged?.Invoke("آماده — منتظر اتصال");
-        return (true, code);
+        return (true, lanCode, internetCode);
     }
 
     // ── Guest ─────────────────────────────────────────────────────────────────
@@ -116,7 +121,8 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
         IsRunning = true;
         StartPollLoop();
-        StatusChanged?.Invoke($"در حال اتصال به {target.hostIp}:{target.hostPort}...");
+        // ‪ = LTR embedding, ‬ = pop — prevents RTL font from rendering dots as slashes
+        StatusChanged?.Invoke($"در حال اتصال به هاست ‪{target.hostIp}:{target.hostPort}‬ ...");
 
         var authData = new NetDataWriter();
         authData.Put(username);
@@ -203,17 +209,6 @@ public sealed class P2PManager : INetEventListener, IDisposable
             string username = request.Data.AvailableBytes > 0
                 ? request.Data.GetString()
                 : $"Guest_{request.RemoteEndPoint}";
-
-            // Reject if same physical IP is already in our confirmed-connected peers list.
-            // Use _peers (updated on OnPeerConnected/Disconnected) rather than _net,
-            // because _net may still hold a disconnecting peer for a few seconds.
-            if (_peers.Values.Any(p => p.EndPoint.Address.Equals(request.RemoteEndPoint.Address)))
-            {
-                var w = new NetDataWriter();
-                w.Put("شما قبلاً در این Room متصل هستید");
-                request.Reject(w);
-                return;
-            }
 
             // Reject based on Host-side validation (e.g. duplicate username)
             string? rejection = ValidateGuest?.Invoke(username, request.RemoteEndPoint);

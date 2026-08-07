@@ -121,14 +121,15 @@ public class TestViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
-            var (ok, code) = await _p2p.StartAsHostAsync(Username, port: 42777);
+            var (ok, lanCode, internetCode) = await _p2p.StartAsHostAsync(Username, port: 42777);
             if (ok)
             {
-                ConnectionCode = code;
+                ConnectionCode = string.IsNullOrEmpty(internetCode) ? lanCode : $"{lanCode} / {internetCode}";
                 DebugRole = "Host";
                 UpdateDebugFromNat();
                 SetStatus("Host — منتظر اتصال", "#43B581");
-                AddLog($"Connection Code: {code}");
+                AddLog($"LAN Code: {lanCode}");
+                if (!string.IsNullOrEmpty(internetCode)) AddLog($"Internet Code: {internetCode}");
             }
         }
         finally { IsBusy = false; }

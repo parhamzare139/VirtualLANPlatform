@@ -2,6 +2,8 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using NAudio.Wave;
 // Explicit aliases resolve WinForms vs WPF conflicts
 using Clipboard      = System.Windows.Clipboard;
 using Color          = System.Windows.Media.Color;
@@ -17,6 +19,7 @@ using VirtualLANPlatform.Core.FileTransfer;
 using VirtualLANPlatform.Core.Networking;
 using VirtualLANPlatform.Core.Protocol;
 using VirtualLANPlatform.Core.Room;
+using VirtualLANPlatform.Core.ScreenShare;
 using VirtualLANPlatform.Core.Services;
 using VirtualLANPlatform.Core.Storage;
 using VirtualLANPlatform.Core.VirtualNetwork;
@@ -42,6 +45,13 @@ public partial class TestWindow : Window
     private CancellationTokenSource? _copyCodeCts;
     private CancellationTokenSource? _copyVipCts;
     private CancellationTokenSource? _saveUserCts;
+    private readonly System.Windows.Threading.DispatcherTimer _memberTimer;
+
+    private readonly ScreenShareManager _screenShare = new();
+    private string?                     _remoteSharerUsername;
+    private Storyboard?                 _dotPulse;
+    private WaveOutEvent?               _audioOut;
+    private BufferedWaveProvider?       _audioBuffer;
 
     private static readonly string UsernamePath = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -56,6 +66,12 @@ public partial class TestWindow : Window
         _chat  = new ChatManager(_p2p);
         _voice = new VoiceManager(_p2p);
         _file  = new FileManager(_p2p);
+
+        _memberTimer = new System.Windows.Threading.DispatcherTimer
+            { Interval = TimeSpan.FromSeconds(1) };
+        _memberTimer.Tick += (_, _) => RefreshMemberList();
+        _memberTimer.Start();
+
         InitTrayIcon();
         WireEvents();
         ShowWinTunVersion();
@@ -151,13 +167,28 @@ public partial class TestWindow : Window
 
     private void EnterRoom(string code, bool isHost)
     {
-        LobbyActions.Visibility    = Visibility.Collapsed;
+        LobbyActions.Visibility     = Visibility.Collapsed;
         LobbyHeaderPanel.Visibility = Visibility.Collapsed;
-        RoomHeaderPanel.Visibility  = Visibility.Visible;
         Footer.Visibility           = Visibility.Collapsed;
 
-        CodeDisplay.Text        = string.IsNullOrEmpty(code) ? "—" : code;
-        CopyCodeBtn.IsEnabled   = !string.IsNullOrEmpty(code);
+        RoomHeaderPanel.Opacity         = 0;
+        RoomHeaderPanel.RenderTransform = new System.Windows.Media.TranslateTransform(18, 0);
+        RoomHeaderPanel.Visibility      = Visibility.Visible;
+        var enterSb = new Storyboard();
+        void Add(DependencyObject t, PropertyPath p, double from, double to, double secs, IEasingFunction? ease = null)
+        {
+            var a = new DoubleAnimation(from, to, new Duration(TimeSpan.FromSeconds(secs))) { EasingFunction = ease };
+            Storyboard.SetTarget(a, t); Storyboard.SetTargetProperty(a, p);
+            enterSb.Children.Add(a);
+        }
+        Add(RoomHeaderPanel, new PropertyPath("Opacity"), 0, 1, 0.3);
+        Add(RoomHeaderPanel, new PropertyPath("(UIElement.RenderTransform).(TranslateTransform.X)"), 18, 0, 0.3,
+            new CubicEase { EasingMode = EasingMode.EaseOut });
+        enterSb.Begin();
+
+        CodeDisplay.Text      = string.IsNullOrEmpty(code) ? "—" : code;
+        CopyCodeBtn.IsEnabled = !string.IsNullOrEmpty(code);
+
         LeaveCloseBtn.Content   = isHost ? "بستن Room" : "خروج از Room";
         LeaveCloseBtn.IsEnabled = true;
 
@@ -175,13 +206,27 @@ public partial class TestWindow : Window
         RoomHeaderPanel.Visibility  = Visibility.Collapsed;
         Footer.Visibility           = Visibility.Visible;
 
-        CodeDisplay.Text        = "—";
-        CopyCodeBtn.IsEnabled   = false;
+        CodeDisplay.Text      = "—";
+        CopyCodeBtn.IsEnabled = false;
         LeaveCloseBtn.IsEnabled = false;
 
-        MicBtn.IsEnabled      = false;
-        SpeakerBtn.IsEnabled  = false;
-        SendFileBtn.IsEnabled = false;
+        MicBtn.IsEnabled         = false;
+        SpeakerBtn.IsEnabled     = false;
+        SendFileBtn.IsEnabled    = false;
+        ScreenShareBtn.IsEnabled = false;
+
+        if (_screenShare.IsSharing)
+        {
+            _screenShare.Stop();
+            _room.BroadcastScreenShareStop();
+            ScreenShareBtn.Content    = "🖥  اشتراک صفحه";
+            ScreenShareBtn.Background = new SolidColorBrush(Color.FromRgb(0x2E, 0x30, 0x35));
+        }
+        StopAudioPlayback();
+        _remoteSharerUsername         = null;
+        ScreenSharePanel.Visibility   = Visibility.Collapsed;
+        TabScreenBtn.Visibility       = Visibility.Collapsed;
+        ScreenFrameImage.Source       = null;
 
         MicBtn.Content        = "🎤 میکروفون";
         SpeakerBtn.Content    = "🔊 اسپیکر";
@@ -211,9 +256,10 @@ public partial class TestWindow : Window
         {
             DbgPeers.Text = _p2p.PeerCount.ToString();
             SetStatus("متصل", "#43B581");
-            MicBtn.IsEnabled      = true;
-            SpeakerBtn.IsEnabled  = true;
-            SendFileBtn.IsEnabled = true;
+            MicBtn.IsEnabled         = true;
+            SpeakerBtn.IsEnabled     = true;
+            SendFileBtn.IsEnabled    = true;
+            ScreenShareBtn.IsEnabled = true;
             Log($"Peer متصل: {info.Username} ({info.EndPoint})");
             RefreshMemberList();
         });
@@ -240,9 +286,10 @@ public partial class TestWindow : Window
             if (_p2p.PeerCount == 0 && _room.IsActive)
             {
                 SetStatus("قطع شده", "#747F8D");
-                MicBtn.IsEnabled      = false;
-                SpeakerBtn.IsEnabled  = false;
-                SendFileBtn.IsEnabled = false;
+                MicBtn.IsEnabled         = false;
+                SpeakerBtn.IsEnabled     = false;
+                SendFileBtn.IsEnabled    = false;
+                ScreenShareBtn.IsEnabled = false;
             }
             RefreshMemberList();
         });
@@ -296,6 +343,41 @@ public partial class TestWindow : Window
             DbgVLanStatus.Text = msg;
             DbgVirtualIP.Text  = _room.MyVIP ?? "—";
             Log($"[VNet] {msg}");
+        });
+
+        // ── Screen Share ──────────────────────────────────────────────────────
+        _screenShare.FrameCaptured += bytes =>
+        {
+            _room.BroadcastScreenShareFrame(bytes);
+            Dispatch(() => ShowScreenFrame(bytes));
+        };
+
+        _screenShare.AudioCaptured += (pcm, fmt) => SendAudio(pcm, fmt);
+
+        _room.ScreenShareAudioReceived += packet => Dispatch(() => PlayAudio(packet));
+
+        _room.ScreenShareStarted += username => Dispatch(() =>
+        {
+            _remoteSharerUsername         = username;
+            ScreenSharerLabel.Text        = $"صفحه‌نمایش  {username}";
+            ScreenSharePanel.Visibility   = Visibility.Visible;
+            TabScreenBtn.Visibility       = Visibility.Visible;
+            ScreenShareBtn.IsEnabled      = false; // only the sharer can stop their own share
+            TabScreen_Click(null!, null!);
+            Log($"اشتراک صفحه توسط {username} شروع شد");
+        });
+
+        _room.ScreenShareFrame += (_, bytes) => Dispatch(() => ShowScreenFrame(bytes));
+
+        _room.ScreenShareStopped += username => Dispatch(() =>
+        {
+            _remoteSharerUsername         = null;
+            ScreenSharePanel.Visibility   = Visibility.Collapsed;
+            TabScreenBtn.Visibility       = Visibility.Collapsed;
+            StopAudioPlayback();
+            if (_p2p.PeerCount > 0) ScreenShareBtn.IsEnabled = true;
+            TabChat_Click(null!, null!);
+            Log($"اشتراک صفحه توسط {username} متوقف شد");
         });
 
         // ── Chat ──────────────────────────────────────────────────────────────
@@ -434,13 +516,13 @@ public partial class TestWindow : Window
         SaveUsername(username);
         _chat.SetUsername(username);
 
-        var (ok, code) = await _room.CreateRoomAsync(username, port: 42777);
+        var (ok, lanCode, _) = await _room.CreateRoomAsync(username, port: 42777);
         if (ok)
         {
             DbgRole.Text = "Host";
             UpdateP2PDebug();
             RefreshMemberList();
-            EnterRoom(code, isHost: true);
+            EnterRoom(lanCode, isHost: true);
         }
         else
         {
@@ -607,25 +689,44 @@ public partial class TestWindow : Window
 
     private void TabLog_Click(object sender, RoutedEventArgs e)
     {
-        LogList.Visibility       = Visibility.Visible;
-        ChatList.Visibility      = Visibility.Collapsed;
-        ChatInputArea.Visibility = Visibility.Collapsed;
-        TabLogBtn.BorderBrush    = new SolidColorBrush(Color.FromRgb(0x58, 0x65, 0xF2));
-        TabLogBtn.Foreground     = new SolidColorBrush(Colors.White);
-        TabChatBtn.BorderBrush   = new SolidColorBrush(Colors.Transparent);
-        TabChatBtn.Foreground    = new SolidColorBrush(Color.FromRgb(0xB9, 0xBB, 0xBE));
+        LogList.Visibility        = Visibility.Visible;
+        ChatList.Visibility       = Visibility.Collapsed;
+        ScreenSharePanel.Visibility = Visibility.Collapsed;
+        ChatInputArea.Visibility  = Visibility.Collapsed;
+        SetTabHighlight(TabLogBtn);
     }
 
     private void TabChat_Click(object sender, RoutedEventArgs e)
     {
-        LogList.Visibility       = Visibility.Collapsed;
-        ChatList.Visibility      = Visibility.Visible;
-        ChatInputArea.Visibility = Visibility.Visible;
-        TabChatBtn.BorderBrush   = new SolidColorBrush(Color.FromRgb(0x58, 0x65, 0xF2));
-        TabChatBtn.Foreground    = new SolidColorBrush(Colors.White);
-        TabLogBtn.BorderBrush    = new SolidColorBrush(Colors.Transparent);
-        TabLogBtn.Foreground     = new SolidColorBrush(Color.FromRgb(0xB9, 0xBB, 0xBE));
+        LogList.Visibility        = Visibility.Collapsed;
+        ChatList.Visibility       = Visibility.Visible;
+        ScreenSharePanel.Visibility = Visibility.Collapsed;
+        ChatInputArea.Visibility  = Visibility.Visible;
+        SetTabHighlight(TabChatBtn);
         ChatInput.Focus();
+    }
+
+    private void TabScreen_Click(object sender, RoutedEventArgs e)
+    {
+        LogList.Visibility        = Visibility.Collapsed;
+        ChatList.Visibility       = Visibility.Collapsed;
+        ScreenSharePanel.Visibility = Visibility.Visible;
+        ChatInputArea.Visibility  = Visibility.Collapsed;
+        SetTabHighlight(TabScreenBtn);
+    }
+
+    private void SetTabHighlight(System.Windows.Controls.Button active)
+    {
+        var on  = new SolidColorBrush(Color.FromRgb(0x58, 0x65, 0xF2));
+        var off = new SolidColorBrush(Colors.Transparent);
+        var white = new SolidColorBrush(Colors.White);
+        var dim   = new SolidColorBrush(Color.FromRgb(0xB9, 0xBB, 0xBE));
+
+        foreach (var btn in new[] { TabLogBtn, TabChatBtn, TabScreenBtn })
+        {
+            btn.BorderBrush = btn == active ? on  : off;
+            btn.Foreground  = btn == active ? white : dim;
+        }
     }
 
     private void SendChat_Click(object sender, RoutedEventArgs e) => DoSendChat();
@@ -659,10 +760,20 @@ public partial class TestWindow : Window
 
     private void RefreshMemberList()
     {
+        // ‪ = LTR Embedding, ‬ = Pop — prevents Vazir RTL font from showing dots as slashes
+        var members  = _room.GetMembers().OrderBy(m => m.Username).ToList();
+        var newItems = members.Select(m => $"{m.Username}  •  ‪{m.VirtualIP}‬").ToList();
+
+        // Skip rebuild if nothing changed — prevents animation flicker on every timer tick
+        if (MemberList.Items.Count == newItems.Count &&
+            newItems.Select((t, i) => (string)MemberList.Items[i] == t).All(x => x))
+            return;
+
         MemberList.Items.Clear();
-        foreach (var m in _room.GetMembers())
-            MemberList.Items.Add($"{m.Username}  •  {m.VirtualIP}");
-        DbgPeers.Text = (_room.GetMembers().Count - (_room.IsHost ? 1 : 0)).ToString();
+        foreach (var item in newItems)
+            MemberList.Items.Add(item);
+
+        DbgPeers.Text = (members.Count - (_room.IsHost ? 1 : 0)).ToString();
     }
 
     private void UpdateP2PDebug()
@@ -689,10 +800,130 @@ public partial class TestWindow : Window
     private void SetStatus(string text, string hexColor)
     {
         StatusLabel.Text = text;
-        StatusDot.Color  = Color.FromArgb(255,
+        var c = Color.FromArgb(255,
             Convert.ToByte(hexColor[1..3], 16),
             Convert.ToByte(hexColor[3..5], 16),
             Convert.ToByte(hexColor[5..7], 16));
+        StatusDot.Color = c;
+
+        _dotPulse?.Stop();
+        bool connected = hexColor == "#43B581";
+        if (connected)
+        {
+            var sb = new Storyboard { RepeatBehavior = RepeatBehavior.Forever };
+            var anim = new DoubleAnimation(1.0, 1.35, new Duration(TimeSpan.FromSeconds(0.7)))
+            {
+                AutoReverse = true,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            };
+            Storyboard.SetTarget(anim, StatusEllipse);
+            Storyboard.SetTargetProperty(anim, new PropertyPath("RenderTransform.ScaleX"));
+            var anim2 = anim.Clone();
+            Storyboard.SetTarget(anim2, StatusEllipse);
+            Storyboard.SetTargetProperty(anim2, new PropertyPath("RenderTransform.ScaleY"));
+            sb.Children.Add(anim);
+            sb.Children.Add(anim2);
+            _dotPulse = sb;
+            sb.Begin();
+        }
+    }
+
+    private void ScreenShare_Click(object sender, RoutedEventArgs e)
+    {
+        if (_remoteSharerUsername != null) return;
+
+        if (_screenShare.IsSharing)
+        {
+            _screenShare.Stop();
+            _room.BroadcastScreenShareStop();
+            StopAudioPlayback();
+            ScreenShareBtn.Content      = "🖥  اشتراک صفحه";
+            ScreenShareBtn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
+            ScreenSharePanel.Visibility = Visibility.Collapsed;
+            TabScreenBtn.Visibility     = Visibility.Collapsed;
+            ScreenFrameImage.Source     = null;
+            TabChat_Click(null!, null!);
+            Log("اشتراک صفحه متوقف شد");
+        }
+        else
+        {
+            var picker = new WindowPickerDialog { Owner = this };
+            if (picker.ShowDialog() != true) return;
+
+            _room.BroadcastScreenShareStart();
+            _screenShare.Start(fps: 8,
+                windowHandle: picker.SelectedHandle,
+                shareAudio:   picker.ShareAudio);
+
+            ScreenShareBtn.Content      = "⏹  توقف اشتراک";
+            ScreenShareBtn.Background   = new SolidColorBrush(Color.FromRgb(0xED, 0x42, 0x45));
+            ScreenSharerLabel.Text      = "صفحه‌نمایش من";
+            ScreenSharePanel.Visibility = Visibility.Visible;
+            TabScreenBtn.Visibility     = Visibility.Visible;
+            TabScreen_Click(null!, null!);
+            Log($"اشتراک صفحه شروع شد{(picker.ShareAudio ? " (با صدا)" : "")}");
+        }
+    }
+
+    private void ShowScreenFrame(byte[] jpegBytes)
+    {
+        try
+        {
+            var bmp = new System.Windows.Media.Imaging.BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption  = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bmp.StreamSource = new System.IO.MemoryStream(jpegBytes);
+            bmp.EndInit();
+            bmp.Freeze();
+            ScreenFrameImage.Source = bmp;
+        }
+        catch { }
+    }
+
+    // ── Audio (screen-share) ──────────────────────────────────────────────────
+
+    private void SendAudio(byte[] pcm, WaveFormat fmt)
+    {
+        var packet = new byte[10 + pcm.Length];
+        BitConverter.GetBytes(fmt.SampleRate).CopyTo(packet, 0);
+        BitConverter.GetBytes((short)fmt.Channels).CopyTo(packet, 4);
+        BitConverter.GetBytes((short)fmt.BitsPerSample).CopyTo(packet, 6);
+        BitConverter.GetBytes((short)(int)fmt.Encoding).CopyTo(packet, 8);
+        pcm.CopyTo(packet, 10);
+        _room.BroadcastScreenShareAudio(packet);
+    }
+
+    private void PlayAudio(byte[] packet)
+    {
+        if (packet.Length < 10) return;
+        int  sampleRate    = BitConverter.ToInt32(packet, 0);
+        int  channels      = BitConverter.ToInt16(packet, 4);
+        int  bitsPerSample = BitConverter.ToInt16(packet, 6);
+        int  encoding      = BitConverter.ToInt16(packet, 8);
+
+        var fmt = encoding == 3
+            ? WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels)
+            : new WaveFormat(sampleRate, bitsPerSample, channels);
+
+        if (_audioBuffer == null || _audioBuffer.WaveFormat.SampleRate != sampleRate
+            || _audioBuffer.WaveFormat.Channels != channels)
+        {
+            StopAudioPlayback();
+            _audioBuffer = new BufferedWaveProvider(fmt) { DiscardOnBufferOverflow = true };
+            _audioOut    = new WaveOutEvent();
+            _audioOut.Init(_audioBuffer);
+            _audioOut.Play();
+        }
+
+        _audioBuffer.AddSamples(packet, 10, packet.Length - 10);
+    }
+
+    private void StopAudioPlayback()
+    {
+        try { _audioOut?.Stop(); } catch { }
+        _audioOut?.Dispose();
+        _audioOut    = null;
+        _audioBuffer = null;
     }
 
     private void SetBusy(bool busy)
@@ -716,6 +947,8 @@ public partial class TestWindow : Window
 
     private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
     {
+        _screenShare.Dispose();
+        StopAudioPlayback();
         _trayIcon?.Dispose();
         _file.Dispose();
         _voice.Dispose();

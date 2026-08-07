@@ -14,5 +14,9 @@ public enum MessageType : byte
     KeepAlive        = 0x0A,
     Error            = 0x0B,
     Disconnect       = 0x0C,
-    FileAccept       = 0x0D
+    FileAccept        = 0x0D,
+    ScreenShareStart  = 0x0E,
+    ScreenShareFrame  = 0x0F,
+    ScreenShareStop   = 0x10,
+    ScreenShareAudio  = 0x11
 }

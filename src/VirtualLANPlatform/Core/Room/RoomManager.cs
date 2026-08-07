@@ -49,12 +49,16 @@ public sealed class RoomManager : IDisposable
 
     // ── Events ────────────────────────────────────────────────────────────────
 
-    public event Action<string>?       StatusChanged;
-    public event Action<MemberRecord>? MemberJoined;
-    public event Action<MemberRecord>? MemberLeft;
+    public event Action<string>?         StatusChanged;
+    public event Action<MemberRecord>?  MemberJoined;
+    public event Action<MemberRecord>?  MemberLeft;
     public event Action<string, string>? ConnectionFailed;
-    public event Action<string>?       RoomClosed;   // fires on Guest when Host closes room
-    public event Action<string>?       VipAssigned;  // fires when MyVIP is ready (Host + Guest)
+    public event Action<string>?        RoomClosed;        // fires on Guest when Host closes room
+    public event Action<string>?        VipAssigned;       // fires when MyVIP is ready (Host + Guest)
+    public event Action<string>?         ScreenShareStarted;       // username of sharer
+    public event Action<string>?         ScreenShareStopped;       // username of sharer
+    public event Action<string, byte[]>? ScreenShareFrame;         // username, jpeg bytes
+    public event Action<byte[]>?         ScreenShareAudioReceived; // raw audio packet
 
     private bool _disposed;
 
@@ -110,8 +114,8 @@ public sealed class RoomManager : IDisposable
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /// <summary>Creates a Room as Host. Returns the Connection Code.</summary>
-    public async Task<(bool Ok, string Code)> CreateRoomAsync(
+    /// <summary>Creates a Room as Host. Returns LAN code and Internet code.</summary>
+    public async Task<(bool Ok, string LanCode, string InternetCode)> CreateRoomAsync(
         string username, ushort port = 42777, CancellationToken ct = default)
     {
         MyUsername = username;
@@ -119,13 +123,12 @@ public sealed class RoomManager : IDisposable
 
         StatusChanged?.Invoke("در حال راه‌اندازی Room...");
 
-        var (ok, code) = await _p2p.StartAsHostAsync(username, port, ct);
-        if (!ok) return (false, "");
+        var (ok, lanCode, internetCode) = await _p2p.StartAsHostAsync(username, port, ct);
+        if (!ok) return (false, "", "");
 
-        MyVIP = HostVIP; // Host IP is always fixed — no need to wait for VNet
+        MyVIP = HostVIP;
         VipAssigned?.Invoke(HostVIP);
 
-        // Start virtual network in background — same pattern as Guest; errors go to status log
         _ = Task.Run(async () =>
         {
             try
@@ -139,18 +142,16 @@ public sealed class RoomManager : IDisposable
             }
         }, ct);
 
-        // Generate Room ID and persist
         RoomId = GenerateRoomId();
         _repo.SaveRoom(RoomId, username, port);
 
-        // Add self to member list (Host entry, peerId = -1)
         var hostMember = new MemberRecord(-1, username, HostVIP, DateTime.UtcNow);
         _members[-1] = hostMember;
         _repo.RecordJoin(RoomId, hostMember);
 
         IsActive = true;
-        StatusChanged?.Invoke($"Room فعال — کد: {code}");
-        return (true, code);
+        StatusChanged?.Invoke($"Room فعال");
+        return (true, lanCode, internetCode);
     }
 
     /// <summary>Joins an existing Room as Guest.</summary>
@@ -237,6 +238,25 @@ public sealed class RoomManager : IDisposable
 
     // ── Guest: receive Handshake ──────────────────────────────────────────────
 
+    // ── Screen Share public API ───────────────────────────────────────────────
+
+    public void BroadcastScreenShareStart()
+    {
+        var payload = Encoding.UTF8.GetBytes(MyUsername ?? "");
+        _p2p.SendToAll(MessageType.ScreenShareStart, payload, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void BroadcastScreenShareFrame(byte[] jpegBytes)
+        => _p2p.SendToAll(MessageType.ScreenShareFrame, jpegBytes, DeliveryMethod.ReliableUnordered);
+
+    public void BroadcastScreenShareStop()
+        => _p2p.SendToAll(MessageType.ScreenShareStop, [], DeliveryMethod.ReliableOrdered);
+
+    public void BroadcastScreenShareAudio(byte[] packet)
+        => _p2p.SendToAll(MessageType.ScreenShareAudio, packet, DeliveryMethod.Unreliable);
+
+    // ── Message dispatch ──────────────────────────────────────────────────────
+
     private void OnMessageReceived(int peerId, MessageFrame frame)
     {
         switch (frame.Type)
@@ -251,6 +271,25 @@ public sealed class RoomManager : IDisposable
 
             case MessageType.Disconnect:
                 HandleDisconnectNotice(frame.Payload.ToArray());
+                break;
+
+            case MessageType.ScreenShareStart:
+                var sharer = Encoding.UTF8.GetString(frame.Payload.ToArray());
+                ScreenShareStarted?.Invoke(sharer);
+                break;
+
+            case MessageType.ScreenShareFrame:
+                string sender = _members.TryGetValue(peerId, out var m) ? m.Username : "—";
+                ScreenShareFrame?.Invoke(sender, frame.Payload.ToArray());
+                break;
+
+            case MessageType.ScreenShareStop:
+                string stopper = _members.TryGetValue(peerId, out var ms2) ? ms2.Username : "—";
+                ScreenShareStopped?.Invoke(stopper);
+                break;
+
+            case MessageType.ScreenShareAudio:
+                ScreenShareAudioReceived?.Invoke(frame.Payload.ToArray());
                 break;
         }
     }

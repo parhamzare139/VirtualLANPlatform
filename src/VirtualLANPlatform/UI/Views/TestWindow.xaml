@@ -9,7 +9,23 @@
         FlowDirection="RightToLeft"
         Background="#1A1D23"
         FontFamily="Inter, Vazir"
+        Opacity="0"
         Closing="Window_Closing">
+
+    <Window.Triggers>
+        <EventTrigger RoutedEvent="Window.Loaded">
+            <BeginStoryboard>
+                <Storyboard>
+                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                     From="0" To="1" Duration="0:0:0.35">
+                        <DoubleAnimation.EasingFunction>
+                            <CubicEase EasingMode="EaseOut"/>
+                        </DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                </Storyboard>
+            </BeginStoryboard>
+        </EventTrigger>
+    </Window.Triggers>
 
     <Window.Resources>
 
@@ -31,22 +47,32 @@
                                   VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
-                <EventTrigger RoutedEvent="PreviewMouseDown">
+                <!-- Hover: subtle brightness lift -->
+                <EventTrigger RoutedEvent="MouseEnter">
                     <BeginStoryboard><Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="0.95" Duration="0:0:0.08"/>
-                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="0.95" Duration="0:0:0.08"/>
-                    </Storyboard></BeginStoryboard>
-                </EventTrigger>
-                <EventTrigger RoutedEvent="PreviewMouseUp">
-                    <BeginStoryboard><Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.22"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.3" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
-                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.22"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.3" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                        <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" To="0.88" Duration="0:0:0.12"/>
                     </Storyboard></BeginStoryboard>
                 </EventTrigger>
                 <EventTrigger RoutedEvent="MouseLeave">
                     <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.18"/>
                         <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.15"/>
                         <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.15"/>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+                <!-- Press: scale down -->
+                <EventTrigger RoutedEvent="PreviewMouseDown">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="0.95" Duration="0:0:0.08"/>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="0.95" Duration="0:0:0.08"/>
+                        <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.05"/>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
+                <!-- Release: spring back -->
+                <EventTrigger RoutedEvent="PreviewMouseUp">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.22"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.3" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.22"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.3" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
                     </Storyboard></BeginStoryboard>
                 </EventTrigger>
             </ControlTemplate.Triggers>
@@ -66,6 +92,14 @@
                                   VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
+                <!-- Hover: lift scale -->
+                <EventTrigger RoutedEvent="MouseEnter">
+                    <BeginStoryboard><Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1.06" Duration="0:0:0.14"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1.06" Duration="0:0:0.14"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                        <DoubleAnimation Storyboard.TargetName="Root"  Storyboard.TargetProperty="Opacity" To="0.9" Duration="0:0:0.1"/>
+                    </Storyboard></BeginStoryboard>
+                </EventTrigger>
                 <EventTrigger RoutedEvent="PreviewMouseDown">
                     <BeginStoryboard><Storyboard>
                         <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="0.93" Duration="0:0:0.08"/>
@@ -74,14 +108,15 @@
                 </EventTrigger>
                 <EventTrigger RoutedEvent="PreviewMouseUp">
                     <BeginStoryboard><Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.28"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.4" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
-                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.28"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.4" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.3"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.5" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.3"><DoubleAnimation.EasingFunction><BackEase Amplitude="0.5" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
                     </Storyboard></BeginStoryboard>
                 </EventTrigger>
                 <EventTrigger RoutedEvent="MouseLeave">
                     <BeginStoryboard><Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.15"/>
-                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.15"/>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.18"/>
+                        <DoubleAnimation Storyboard.TargetName="Sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.18"/>
+                        <DoubleAnimation Storyboard.TargetName="Root"  Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.15"/>
                     </Storyboard></BeginStoryboard>
                 </EventTrigger>
                 <Trigger Property="IsEnabled" Value="False">
@@ -284,7 +319,15 @@
 
         <!-- Chat message bubble -->
         <DataTemplate DataType="{x:Type chat:ChatMessage}">
-            <Border Padding="0,5">
+            <Border Padding="0,5" Opacity="0">
+                <Border.Triggers>
+                    <EventTrigger RoutedEvent="Loaded">
+                        <BeginStoryboard><Storyboard>
+                            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.3"/>
+                            <ThicknessAnimation Storyboard.TargetProperty="Margin" From="0,10,0,0" To="0,0,0,0" Duration="0:0:0.28"><ThicknessAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></ThicknessAnimation.EasingFunction></ThicknessAnimation>
+                        </Storyboard></BeginStoryboard>
+                    </EventTrigger>
+                </Border.Triggers>
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{Binding Sender}"
@@ -306,7 +349,15 @@
         <!-- Incoming/outgoing file card -->
         <DataTemplate DataType="{x:Type local:FileNotification}">
             <Border Background="#2A2D35" CornerRadius="8"
-                    Padding="12,9" Margin="0,3">
+                    Padding="12,9" Margin="0,3" Opacity="0">
+                <Border.Triggers>
+                    <EventTrigger RoutedEvent="Loaded">
+                        <BeginStoryboard><Storyboard>
+                            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.3"/>
+                            <ThicknessAnimation Storyboard.TargetProperty="Margin" From="0,12,0,-9" To="0,3,0,3" Duration="0:0:0.3"><ThicknessAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></ThicknessAnimation.EasingFunction></ThicknessAnimation>
+                        </Storyboard></BeginStoryboard>
+                    </EventTrigger>
+                </Border.Triggers>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -384,7 +435,12 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal"
                             HorizontalAlignment="Center" VerticalAlignment="Center"
                             FlowDirection="RightToLeft">
-                    <Ellipse Width="10" Height="10" Margin="6,0,0,0">
+                    <Ellipse x:Name="StatusEllipse"
+                             Width="10" Height="10" Margin="6,0,0,0"
+                             RenderTransformOrigin="0.5,0.5">
+                        <Ellipse.RenderTransform>
+                            <ScaleTransform x:Name="DotScale" ScaleX="1" ScaleY="1"/>
+                        </Ellipse.RenderTransform>
                         <Ellipse.Fill>
                             <SolidColorBrush x:Name="StatusDot" Color="#747F8D"/>
                         </Ellipse.Fill>
@@ -415,7 +471,8 @@
                             Orientation="Horizontal" Visibility="Collapsed"
                             VerticalAlignment="Center">
 
-                    <TextBlock Text="کد:" Foreground="#80848E" FontSize="11"
+                    <!-- Connection code -->
+                    <TextBlock Text="کد اتصال:" Foreground="#80848E" FontSize="11"
                                FontFamily="Vazir"
                                VerticalAlignment="Center" Margin="0,0,7,0"/>
                     <Border Background="#1E2025" CornerRadius="6"
@@ -428,7 +485,7 @@
                     <Button x:Name="CopyCodeBtn" Content="کپی کد"
                             Style="{StaticResource GhostBtn}"
                             FontFamily="Vazir"
-                            IsEnabled="False" Margin="0,0,12,0"
+                            IsEnabled="False" Margin="0,0,8,0"
                             Click="CopyCode_Click"/>
 
                     <Rectangle Width="1" Height="18" Fill="#3A3D44" Margin="0,0,12,0"/>
@@ -481,7 +538,26 @@
                 </Grid.RowDefinitions>
 
                 <!-- Lobby action cards -->
-                <StackPanel x:Name="LobbyActions" Grid.Row="0">
+                <StackPanel x:Name="LobbyActions" Grid.Row="0"
+                            RenderTransformOrigin="0.5,1">
+                    <StackPanel.RenderTransform>
+                        <TranslateTransform x:Name="LobbySlide" Y="30"/>
+                    </StackPanel.RenderTransform>
+                    <StackPanel.Triggers>
+                        <EventTrigger RoutedEvent="StackPanel.Loaded">
+                            <BeginStoryboard><Storyboard>
+                                <DoubleAnimation Storyboard.TargetName="LobbySlide"
+                                                 Storyboard.TargetProperty="Y"
+                                                 From="30" To="0" Duration="0:0:0.4">
+                                    <DoubleAnimation.EasingFunction>
+                                        <CubicEase EasingMode="EaseOut"/>
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                 From="0" To="1" Duration="0:0:0.35"/>
+                            </Storyboard></BeginStoryboard>
+                        </EventTrigger>
+                    </StackPanel.Triggers>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -490,7 +566,23 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- Create Room card -->
-                        <Border Grid.Column="0" Style="{StaticResource Card}">
+                        <Border Grid.Column="0" Style="{StaticResource Card}"
+                                x:Name="CreateCard" RenderTransformOrigin="0.5,0.5" Cursor="Arrow">
+                            <Border.RenderTransform><ScaleTransform x:Name="CreateCardSc"/></Border.RenderTransform>
+                            <Border.Triggers>
+                                <EventTrigger RoutedEvent="MouseEnter">
+                                    <BeginStoryboard><Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="CreateCardSc" Storyboard.TargetProperty="ScaleX" To="1.018" Duration="0:0:0.18"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="CreateCardSc" Storyboard.TargetProperty="ScaleY" To="1.018" Duration="0:0:0.18"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                                    </Storyboard></BeginStoryboard>
+                                </EventTrigger>
+                                <EventTrigger RoutedEvent="MouseLeave">
+                                    <BeginStoryboard><Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="CreateCardSc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.22"/>
+                                        <DoubleAnimation Storyboard.TargetName="CreateCardSc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.22"/>
+                                    </Storyboard></BeginStoryboard>
+                                </EventTrigger>
+                            </Border.Triggers>
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
                                     <Border Background="#5865F2" CornerRadius="10"
@@ -524,7 +616,23 @@
                         </Border>
 
                         <!-- Join Room card -->
-                        <Border Grid.Column="2" Style="{StaticResource Card}">
+                        <Border Grid.Column="2" Style="{StaticResource Card}"
+                                x:Name="JoinCard" RenderTransformOrigin="0.5,0.5" Cursor="Arrow">
+                            <Border.RenderTransform><ScaleTransform x:Name="JoinCardSc"/></Border.RenderTransform>
+                            <Border.Triggers>
+                                <EventTrigger RoutedEvent="MouseEnter">
+                                    <BeginStoryboard><Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="JoinCardSc" Storyboard.TargetProperty="ScaleX" To="1.018" Duration="0:0:0.18"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="JoinCardSc" Storyboard.TargetProperty="ScaleY" To="1.018" Duration="0:0:0.18"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                                    </Storyboard></BeginStoryboard>
+                                </EventTrigger>
+                                <EventTrigger RoutedEvent="MouseLeave">
+                                    <BeginStoryboard><Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="JoinCardSc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.22"/>
+                                        <DoubleAnimation Storyboard.TargetName="JoinCardSc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.22"/>
+                                    </Storyboard></BeginStoryboard>
+                                </EventTrigger>
+                            </Border.Triggers>
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
                                     <Border Background="#248046" CornerRadius="10"
@@ -628,8 +736,14 @@
                                     Content="📎  ارسال فایل"
                                     Style="{StaticResource VoiceBtn}"
                                     Background="#2E3035"
-                                    IsEnabled="False"
+                                    IsEnabled="False" Margin="0,0,7,0"
                                     Click="SendFile_Click"/>
+                            <Button x:Name="ScreenShareBtn"
+                                    Content="🖥  اشتراک صفحه"
+                                    Style="{StaticResource VoiceBtn}"
+                                    Background="#2E3035"
+                                    IsEnabled="False"
+                                    Click="ScreenShare_Click"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -654,7 +768,12 @@
                                         Click="TabLog_Click"/>
                                 <Button x:Name="TabChatBtn" Content="چت و فایل"
                                         Style="{StaticResource TabBtn}"
+                                        Margin="0,0,20,0"
                                         Click="TabChat_Click"/>
+                                <Button x:Name="TabScreenBtn" Content="🖥  صفحه"
+                                        Style="{StaticResource TabBtn}"
+                                        Visibility="Collapsed"
+                                        Click="TabScreen_Click"/>
                             </StackPanel>
                         </Border>
 
@@ -681,7 +800,16 @@
                                     <TextBlock Text="{Binding}" Foreground="#4E5058"
                                                FontSize="11" FontFamily="Consolas"
                                                TextWrapping="Wrap"
-                                               FlowDirection="LeftToRight"/>
+                                               FlowDirection="LeftToRight"
+                                               Opacity="0">
+                                        <TextBlock.Triggers>
+                                            <EventTrigger RoutedEvent="Loaded">
+                                                <BeginStoryboard><Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.2"/>
+                                                </Storyboard></BeginStoryboard>
+                                            </EventTrigger>
+                                        </TextBlock.Triggers>
+                                    </TextBlock>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
@@ -707,6 +835,30 @@
                                 </Style>
                             </ListBox.ItemContainerStyle>
                         </ListBox>
+
+                        <!-- Screen share panel (inline, like Google Meet) -->
+                        <Border Grid.Row="1" x:Name="ScreenSharePanel"
+                                Background="#000000" Visibility="Collapsed">
+                            <Grid>
+                                <Image x:Name="ScreenFrameImage"
+                                       Stretch="Uniform"
+                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                                <!-- Overlay label — floats on top of the image -->
+                                <Border VerticalAlignment="Top"
+                                        Background="#CC111214" Padding="12,5"
+                                        HorizontalAlignment="Stretch">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                                                FlowDirection="RightToLeft">
+                                        <Ellipse Width="7" Height="7" Fill="#ED4245" Margin="0,0,7,0"/>
+                                        <TextBlock x:Name="ScreenSharerLabel"
+                                                   Text="در حال دریافت صفحه..."
+                                                   Foreground="#DBDEE1" FontSize="12"
+                                                   FontFamily="Vazir"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Border>
 
                         <!-- Chat input -->
                         <Grid Grid.Row="2" x:Name="ChatInputArea"
@@ -770,7 +922,15 @@
                             </ListBox.ItemContainerStyle>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <StackPanel Orientation="Horizontal">
+                                    <StackPanel Orientation="Horizontal" Opacity="0">
+                                        <StackPanel.Triggers>
+                                            <EventTrigger RoutedEvent="Loaded">
+                                                <BeginStoryboard><Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.35"/>
+                                                    <ThicknessAnimation Storyboard.TargetProperty="Margin" From="0,0,-12,0" To="0,0,0,0" Duration="0:0:0.3"><ThicknessAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></ThicknessAnimation.EasingFunction></ThicknessAnimation>
+                                                </Storyboard></BeginStoryboard>
+                                            </EventTrigger>
+                                        </StackPanel.Triggers>
                                         <Ellipse Width="8" Height="8"
                                                  Fill="#23A55A" Margin="0,0,9,0"/>
                                         <TextBlock Text="{Binding}"

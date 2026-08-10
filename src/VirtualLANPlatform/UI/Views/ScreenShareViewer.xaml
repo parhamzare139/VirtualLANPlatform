@@ -1,0 +1,54 @@
+<Window x:Class="VirtualLANPlatform.UI.Views.ScreenShareViewer"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="اشتراک‌گذاری صفحه"
+        Height="540" Width="960"
+        MinHeight="300" MinWidth="480"
+        Background="#0D0E11"
+        WindowStyle="SingleBorderWindow"
+        ResizeMode="CanResize">
+
+    <Window.Triggers>
+        <EventTrigger RoutedEvent="Window.Loaded">
+            <BeginStoryboard>
+                <Storyboard>
+                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                     From="0" To="1" Duration="0:0:0.25"/>
+                </Storyboard>
+            </BeginStoryboard>
+        </EventTrigger>
+    </Window.Triggers>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="38"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#111214">
+            <Grid Margin="12,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                            FlowDirection="RightToLeft">
+                    <Ellipse Width="8" Height="8" Fill="#ED4245" Margin="0,0,7,0"/>
+                    <TextBlock x:Name="SharingLabel"
+                               Text="در حال دریافت صفحه..."
+                               Foreground="#DBDEE1" FontSize="12"
+                               FontFamily="Vazir"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+                <Button Content="✕" HorizontalAlignment="Left"
+                        Background="Transparent" BorderThickness="0"
+                        Foreground="#4E5058" FontSize="14" Cursor="Hand"
+                        Click="Close_Click"/>
+            </Grid>
+        </Border>
+
+        <!-- Screen frame -->
+        <Border Grid.Row="1" Background="#000000">
+            <Image x:Name="FrameImage"
+                   Stretch="Uniform"
+                   RenderOptions.BitmapScalingMode="LowQuality"/>
+        </Border>
+    </Grid>
+</Window>

@@ -45,6 +45,9 @@ public partial class TestWindow : Window
     private CancellationTokenSource? _copyCodeCts;
     private CancellationTokenSource? _copyVipCts;
     private CancellationTokenSource? _saveUserCts;
+    private CancellationTokenSource? _copyInternetCts;
+    private CancellationTokenSource? _copyMyCodeCts;
+    private string _lastHostCode = ""; // saved for Guest punch retry
     private readonly System.Windows.Threading.DispatcherTimer _memberTimer;
 
     private readonly ScreenShareManager _screenShare = new();
@@ -237,6 +240,13 @@ public partial class TestWindow : Window
         ChatList.Items.Clear();
         _fileNotifs.Clear();
         VoiceStatus.Text = "—";
+
+        NatPunchSection.Visibility    = Visibility.Collapsed;
+        PunchSection.Visibility       = Visibility.Collapsed;
+        InternetCodeDisplay.Text      = "—";
+        CopyInternetCodeBtn.IsEnabled = false;
+        GuestPunchCodeBox.Text        = "";
+        MyExternalCodeBox.Text        = "";
 
         ResetDebug();
         SetStatus("آماده", "#747F8D");
@@ -516,12 +526,19 @@ public partial class TestWindow : Window
         SaveUsername(username);
         _chat.SetUsername(username);
 
-        var (ok, lanCode, _) = await _room.CreateRoomAsync(username, port: 42777);
+        var (ok, lanCode, internetCode) = await _room.CreateRoomAsync(username, port: 42777);
         if (ok)
         {
             DbgRole.Text = "Host";
             UpdateP2PDebug();
             RefreshMemberList();
+
+            // Show internet code (STUN-discovered) separately from LAN code
+            string extCode = _p2p.ExternalCode is { Length: > 0 } ec ? ec : internetCode;
+            InternetCodeDisplay.Text      = extCode.Length > 0 ? extCode : "—";
+            CopyInternetCodeBtn.IsEnabled = extCode.Length > 0;
+            PunchSection.Visibility       = Visibility.Visible;
+
             EnterRoom(lanCode, isHost: true);
         }
         else
@@ -545,6 +562,7 @@ public partial class TestWindow : Window
         SetBusy(true);
         SetStatus("در حال اتصال...", "#FAA61A");
         Log($"تلاش اتصال: {code}");
+        _lastHostCode = code;
 
         string username = UsernameBox.Text.Trim() is { Length: > 0 } u ? u : "Guest";
         SaveUsername(username);
@@ -554,8 +572,24 @@ public partial class TestWindow : Window
         if (ok)
         {
             DbgRole.Text = "Guest";
+            NatPunchSection.Visibility = Visibility.Collapsed;
             RefreshMemberList();
             EnterRoom(code, isHost: false);
+        }
+        else
+        {
+            // Direct connection failed — show NAT punch UI
+            // Wait a moment for STUN to finish discovering our external endpoint
+            await Task.Delay(500);
+            string myCode = _p2p.ExternalCode;
+            if (myCode.Length > 0)
+            {
+                MyExternalCodeBox.Text     = myCode;
+                NatPunchSection.Visibility = Visibility.Visible;
+                _p2p.EnterPunchMode(code, username);
+                SetStatus("منتظر اتصال متقابل...", "#FAA61A");
+                Log("اتصال مستقیم ناموفق — حالت NAT Punch فعال شد");
+            }
         }
         SetBusy(false);
     }
@@ -623,6 +657,69 @@ public partial class TestWindow : Window
             CopyCodeBtn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
         }
         catch (OperationCanceledException) { }
+    }
+
+    private async void CopyInternetCode_Click(object sender, RoutedEventArgs e)
+    {
+        string code = InternetCodeDisplay.Text;
+        if (string.IsNullOrEmpty(code) || code == "—") return;
+
+        try { Clipboard.SetDataObject(code, copy: true); }
+        catch { try { Clipboard.SetText(code); } catch { } }
+
+        _copyInternetCts?.Cancel();
+        _copyInternetCts = new CancellationTokenSource();
+        var cts = _copyInternetCts;
+
+        CopyInternetCodeBtn.Content    = "✓ کپی شد";
+        CopyInternetCodeBtn.Background = new SolidColorBrush(Color.FromRgb(0x43, 0xB5, 0x81));
+        Log($"کد اینترنت کپی شد: {code}");
+        try
+        {
+            await Task.Delay(2000, cts.Token);
+            CopyInternetCodeBtn.Content = "کپی";
+            CopyInternetCodeBtn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async void CopyMyCode_Click(object sender, RoutedEventArgs e)
+    {
+        string code = MyExternalCodeBox.Text;
+        if (string.IsNullOrEmpty(code)) return;
+
+        try { Clipboard.SetDataObject(code, copy: true); }
+        catch { try { Clipboard.SetText(code); } catch { } }
+
+        _copyMyCodeCts?.Cancel();
+        _copyMyCodeCts = new CancellationTokenSource();
+        var cts = _copyMyCodeCts;
+
+        var btn = (System.Windows.Controls.Button)sender;
+        btn.Content    = "✓";
+        btn.Background = new SolidColorBrush(Color.FromRgb(0x43, 0xB5, 0x81));
+        try
+        {
+            await Task.Delay(1800, cts.Token);
+            btn.Content = "کپی";
+            btn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private void PunchConnect_Click(object sender, RoutedEventArgs e)
+    {
+        string guestCode = GuestPunchCodeBox.Text.Trim();
+        if (guestCode.Length == 0)
+        {
+            MessageBox.Show("لطفاً کد مهمان را وارد کنید.", "خطا",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        string username = UsernameBox.Text.Trim() is { Length: > 0 } u ? u : "Host";
+        _p2p.PunchConnect(guestCode, username);
+        Log($"NAT Punch آغاز شد — کد مهمان: {guestCode}");
     }
 
     private async void LeaveClose_Click(object sender, RoutedEventArgs e)

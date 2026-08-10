@@ -36,10 +36,12 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    public PeerRole   Role       { get; private set; } = PeerRole.None;
-    public bool       IsRunning  { get; private set; }
-    public int        PeerCount  => _peers.Count;
-    public NatStatus  NatStatus  => _nat.Status;
+    public PeerRole   Role         { get; private set; } = PeerRole.None;
+    public bool       IsRunning    { get; private set; }
+    public int        PeerCount    => _peers.Count;
+    public NatStatus  NatStatus    => _nat.Status;
+    /// <summary>STUN-discovered external connection code (IP:port as base58).</summary>
+    public string     ExternalCode { get; private set; } = "";
 
     // Returns true if the given peer has an established encryption session
     public bool IsEncrypted(int peerId) => _sessionKeys.ContainsKey(peerId);
@@ -54,6 +56,11 @@ public sealed class P2PManager : INetEventListener, IDisposable
     private readonly CryptoEngine              _crypto            = new();
     private NetManager? _net;
     private CancellationTokenSource? _pollCts;
+
+    // NAT punch-through support
+    private bool   _acceptPunch = false;  // when true, Guest also accepts incoming connections
+    private ushort _boundPort   = 0;      // local UDP port bound by this manager
+    private CancellationTokenSource? _punchCts;
 
     public P2PManager()
     {
@@ -78,7 +85,8 @@ public sealed class P2PManager : INetEventListener, IDisposable
             return (false, "", "");
         }
 
-        IsRunning = true;
+        _boundPort = port;
+        IsRunning  = true;
         StartPollLoop();
         StatusChanged?.Invoke("در حال کشف IP عمومی و NAT...");
 
@@ -87,10 +95,21 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
         string lanCode      = ConnectionCodeEngine.Encode(IPAddress.Parse(localIp), port);
         string internetCode = "";
-        if (_nat.Status.PublicIP is { } pub && pub != "کشف نشد")
+
+        // Use STUN to discover accurate external port (may differ from local port)
+        var (stunIp, stunPort) = await StunClient.DiscoverAsync(port, ct).ConfigureAwait(false);
+        if (stunIp != null)
+        {
+            internetCode = ConnectionCodeEngine.Encode(stunIp, stunPort);
+            ExternalCode = internetCode;
+            _nat.Status.PublicIP     = stunIp.ToString();
+            _nat.Status.ExternalPort = stunPort;
+        }
+        else if (_nat.Status.PublicIP is { } pub && pub != "کشف نشد")
         {
             ushort extPort = _nat.Status.ExternalPort ?? port;
             internetCode = ConnectionCodeEngine.Encode(IPAddress.Parse(pub), extPort);
+            ExternalCode = internetCode;
         }
 
         StatusChanged?.Invoke("آماده — منتظر اتصال");
@@ -112,12 +131,45 @@ public sealed class P2PManager : INetEventListener, IDisposable
             return false;
         }
 
+        // Shutdown any previous (failed) attempt before starting fresh
+        if (_net != null && IsRunning)
+        {
+            _punchCts?.Cancel();
+            _net.Stop();
+            _net = null;
+            _sessionKeys.Clear();
+            _peers.Clear();
+        }
+        _acceptPunch = false;
+
         _net = BuildNetManager();
-        if (!_net.Start())
+
+        // Try to bind to a predictable port so STUN mapping is stable
+        const ushort GuestPort = 42778;
+        bool started = _net.Start(GuestPort);
+        if (!started)
+        {
+            started = _net.Start(); // fall back to random port
+            _boundPort = 0;
+        }
+        else
+        {
+            _boundPort = GuestPort;
+        }
+
+        if (!started)
         {
             ConnectionFailed?.Invoke("Guest شروع نشد", "خطا در راه‌اندازی شبکه.");
             return false;
         }
+
+        // Discover external endpoint via STUN while still trying to connect
+        _ = Task.Run(async () =>
+        {
+            var (stunIp, stunPort) = await StunClient.DiscoverAsync(_boundPort, ct).ConfigureAwait(false);
+            if (stunIp != null)
+                ExternalCode = ConnectionCodeEngine.Encode(stunIp, stunPort);
+        }, ct);
 
         IsRunning = true;
         StartPollLoop();
@@ -146,7 +198,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
             return await tcs.Task.WaitAsync(timeout.Token);
         }
         catch (OperationCanceledException)
@@ -194,7 +246,9 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
     public void Shutdown()
     {
-        IsRunning = false;
+        IsRunning    = false;
+        _acceptPunch = false;
+        _punchCts?.Cancel();
         _pollCts?.Cancel();
         _net?.Stop();
         _sessionKeys.Clear();
@@ -210,7 +264,6 @@ public sealed class P2PManager : INetEventListener, IDisposable
                 ? request.Data.GetString()
                 : $"Guest_{request.RemoteEndPoint}";
 
-            // Reject based on Host-side validation (e.g. duplicate username)
             string? rejection = ValidateGuest?.Invoke(username, request.RemoteEndPoint);
             if (rejection != null)
             {
@@ -223,12 +276,77 @@ public sealed class P2PManager : INetEventListener, IDisposable
             _pendingUsernames[request.RemoteEndPoint.ToString()] = username;
             request.Accept();
         }
+        else if (Role == PeerRole.Guest && _acceptPunch)
+        {
+            // Accept reverse connection from Host during NAT hole-punch
+            string username = request.Data.AvailableBytes > 0
+                ? request.Data.GetString()
+                : "Host";
+            _pendingUsernames[request.RemoteEndPoint.ToString()] = username;
+            request.Accept();
+        }
         else
             request.Reject();
     }
 
     public void DisconnectPeer(int peerId)
         => _net?.GetPeerById(peerId)?.Disconnect();
+
+    /// <summary>
+    /// Initiates a connection to <paramref name="peerCode"/> while simultaneously
+    /// accepting incoming connections — implements UDP hole punching.
+    /// Call on Host side when Guest's direct connect failed.
+    /// </summary>
+    public void PunchConnect(string peerCode, string username)
+    {
+        if (_net == null || !IsRunning) return;
+        try
+        {
+            var (ip, port) = ConnectionCodeEngine.Decode(peerCode);
+            var authData   = new NetDataWriter();
+            authData.Put(username);
+            _net.Connect(ip.ToString(), port, authData);
+            StatusChanged?.Invoke($"NAT Punch — در حال اتصال به ‪{ip}:{port}‬");
+        }
+        catch (Exception ex)
+        {
+            ConnectionFailed?.Invoke("کد نامعتبر", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Called on Guest side after direct connect timeout.
+    /// Keeps the P2P socket alive, accepts reverse connections from Host,
+    /// and periodically retries outbound connect to Host to keep the NAT hole open.
+    /// </summary>
+    public void EnterPunchMode(string hostCode, string username)
+    {
+        if (_net == null) return;
+        _acceptPunch = true;
+
+        _punchCts?.Cancel();
+        _punchCts = new CancellationTokenSource();
+        var token = _punchCts.Token;
+
+        StatusChanged?.Invoke("منتظر اتصال متقابل از هاست...");
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var (ip, port) = ConnectionCodeEngine.Decode(hostCode);
+                while (!token.IsCancellationRequested)
+                {
+                    // Keep punching Guest's NAT toward Host so Host's packets can come back
+                    var authData = new NetDataWriter();
+                    authData.Put(username);
+                    _net?.Connect(ip.ToString(), port, authData);
+                    await Task.Delay(3000, token);
+                }
+            }
+            catch { }
+        }, token);
+    }
 
     public void OnPeerConnected(NetPeer peer)
     {
@@ -392,5 +510,6 @@ public sealed class P2PManager : INetEventListener, IDisposable
         _upnp.Dispose();
         _ipDisc.Dispose();
         _pollCts?.Dispose();
+        _punchCts?.Dispose();
     }
 }

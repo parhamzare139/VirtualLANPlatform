@@ -578,18 +578,32 @@ public partial class TestWindow : Window
         }
         else
         {
-            // Direct connection failed — show NAT punch UI
-            // Wait a moment for STUN to finish discovering our external endpoint
-            await Task.Delay(500);
-            string myCode = _p2p.ExternalCode;
-            if (myCode.Length > 0)
+            // Direct connect failed — enter punch mode immediately and discover external code
+            SetStatus("اتصال مستقیم ناموفق — در حال تلاش NAT Punch...", "#FAA61A");
+            Log("اتصال مستقیم ناموفق — حالت NAT Punch فعال شد");
+
+            MyExternalCodeBox.Text     = "در حال کشف...";
+            NatPunchSection.Visibility = Visibility.Visible;
+            _p2p.EnterPunchMode(code, username);
+
+            // Poll up to 10 s for STUN to return our external code
+            _ = Task.Run(async () =>
             {
-                MyExternalCodeBox.Text     = myCode;
-                NatPunchSection.Visibility = Visibility.Visible;
-                _p2p.EnterPunchMode(code, username);
-                SetStatus("منتظر اتصال متقابل...", "#FAA61A");
-                Log("اتصال مستقیم ناموفق — حالت NAT Punch فعال شد");
-            }
+                for (int i = 0; i < 20; i++)
+                {
+                    await Task.Delay(500);
+                    string myCode = _p2p.ExternalCode;
+                    if (myCode.Length > 0)
+                    {
+                        Dispatch(() =>
+                        {
+                            MyExternalCodeBox.Text = myCode;
+                            SetStatus("منتظر اتصال متقابل از هاست...", "#FAA61A");
+                        });
+                        break;
+                    }
+                }
+            });
         }
         SetBusy(false);
     }

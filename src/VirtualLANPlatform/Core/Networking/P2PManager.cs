@@ -350,6 +350,10 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
     public void OnPeerConnected(NetPeer peer)
     {
+        // Stop punch loop the moment any connection succeeds
+        _punchCts?.Cancel();
+        _acceptPunch = false;
+
         string epKey = peer.EndPoint.ToString();
         string username = Role == PeerRole.Host
             ? (_pendingUsernames.TryGetValue(epKey, out string? u) ? u : $"Guest_{peer.Id}")
@@ -391,7 +395,13 @@ public sealed class P2PManager : INetEventListener, IDisposable
             _                                      => di.Reason.ToString()
         };
 
-        StatusChanged?.Invoke(_peers.Count > 0 ? $"متصل — {_peers.Count} کاربر" : "قطع شده");
+        // Only report "disconnected" when a live session drops; a failed initial attempt
+        // is handled by the caller (ConnectAsGuestAsync / Join_Click).
+        if (_peers.Count > 0)
+            StatusChanged?.Invoke($"متصل — {_peers.Count} کاربر");
+        else if (_peers.Count == 0 && di.Reason == DisconnectReason.RemoteConnectionClose)
+            StatusChanged?.Invoke("قطع شده");
+
         PeerDisconnected?.Invoke(peer.Id, reason);
     }
 
@@ -467,8 +477,8 @@ public sealed class P2PManager : INetEventListener, IDisposable
         AutoRecycle                = true,
         IPv6Enabled                = true,
         UnconnectedMessagesEnabled = false,
-        PingInterval               = 1000,
-        DisconnectTimeout          = 10000
+        PingInterval               = 2000,
+        DisconnectTimeout          = 30000
     };
 
     private void StartPollLoop()

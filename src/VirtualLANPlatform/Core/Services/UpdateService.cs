@@ -10,9 +10,8 @@ namespace VirtualLANPlatform.Core.Services;
 /// </summary>
 public static class UpdateService
 {
-    // Replace this URL after publishing the GitHub repository.
     private const string ManifestUrl =
-        "https://raw.githubusercontent.com/your-org/VirtualLANPlatform/main/update.xml";
+        "https://raw.githubusercontent.com/parhamzare139/VirtualLANPlatform/main/update.xml";
 
     private static bool _configured;
 

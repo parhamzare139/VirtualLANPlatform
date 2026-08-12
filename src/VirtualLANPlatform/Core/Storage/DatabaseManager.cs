@@ -32,6 +32,21 @@ public sealed class DatabaseManager : IDisposable
         Execute("PRAGMA synchronous=NORMAL;");
 
         ApplySchema();
+        MigrateDropVirtualIp();
+    }
+
+    private void MigrateDropVirtualIp()
+    {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "PRAGMA table_info(room_members);";
+        using var reader = cmd.ExecuteReader();
+        bool hasVirtualIp = false;
+        while (reader.Read())
+        {
+            if (reader.GetString(1) == "virtual_ip") { hasVirtualIp = true; break; }
+        }
+        if (hasVirtualIp)
+            Execute("ALTER TABLE room_members DROP COLUMN virtual_ip;");
     }
 
     private void ApplySchema()

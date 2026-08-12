@@ -39,8 +39,7 @@ public partial class TestWindow : Window
 
     private System.Windows.Forms.NotifyIcon? _trayIcon;
     private bool _busy;
-
-    private CancellationTokenSource? _copyCodeCts;
+    private CancellationTokenSource? _opCts;
     private CancellationTokenSource? _saveUserCts;
     private readonly System.Windows.Threading.DispatcherTimer _memberTimer;
 
@@ -53,6 +52,10 @@ public partial class TestWindow : Window
     private static readonly string UsernamePath = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "VirtualLANPlatform", "username.txt");
+
+    private static readonly string PortPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "VirtualLANPlatform", "port.txt");
 
     [DllImport("user32.dll")] private static extern bool MessageBeep(uint uType);
 
@@ -72,6 +75,7 @@ public partial class TestWindow : Window
         InitTrayIcon();
         WireEvents();
         LoadSavedUsername();
+        LoadSavedPort();
         LoadWindowIcon();
     }
 
@@ -94,7 +98,8 @@ public partial class TestWindow : Window
             if (System.IO.File.Exists(UsernamePath))
             {
                 string saved = System.IO.File.ReadAllText(UsernamePath).Trim();
-                if (saved.Length > 0) UsernameBox.Text = saved;
+                if (saved.Length > 0)
+                    UsernameBox.Text = saved;
             }
         }
         catch { }
@@ -108,6 +113,48 @@ public partial class TestWindow : Window
             System.IO.File.WriteAllText(UsernamePath, username);
         }
         catch { }
+    }
+
+    // ── Port persistence ──────────────────────────────────────────────────────
+
+    private void LoadSavedPort()
+    {
+        try
+        {
+            if (System.IO.File.Exists(PortPath))
+            {
+                string saved = System.IO.File.ReadAllText(PortPath).Trim();
+                if (ushort.TryParse(saved, out ushort p) && p > 0)
+                    PortBox.Text = saved;
+            }
+        }
+        catch { }
+    }
+
+    private static void SavePort(ushort port)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(PortPath)!);
+            System.IO.File.WriteAllText(PortPath, port.ToString());
+        }
+        catch { }
+    }
+
+    private void PortBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        ushort port = GetPort();
+        SavePort(port);
+    }
+
+    private void PortBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            ushort port = GetPort();
+            SavePort(port);
+            e.Handled = true;
+        }
     }
 
     // ── Tray icon ─────────────────────────────────────────────────────────────
@@ -182,15 +229,16 @@ public partial class TestWindow : Window
             new CubicEase { EasingMode = EasingMode.EaseOut });
         enterSb.Begin();
 
-        CodeDisplay.Text      = string.IsNullOrEmpty(ipPort) ? "—" : ipPort;
-        CopyCodeBtn.IsEnabled = !string.IsNullOrEmpty(ipPort) && ipPort != "—";
-
         LeaveCloseBtn.Content   = isHost ? "بستن Room" : "خروج از Room";
         LeaveCloseBtn.IsEnabled = true;
 
+        UsernameSection.Visibility = Visibility.Collapsed;
+        VoiceStrip.Visibility      = Visibility.Visible;
+        ChatPanel.Visibility       = Visibility.Visible;
+        RightSidebar.Visibility    = Visibility.Visible;
+        ShowChat();
+
         SetStatus(isHost ? "Host — منتظر اتصال" : "متصل", "#43B581");
-        Log($"وارد Room شدید — نقش: {(isHost ? "Host" : "Guest")}");
-        TabChat_Click(null!, null!);
     }
 
     private void LeaveRoom()
@@ -200,8 +248,11 @@ public partial class TestWindow : Window
         RoomHeaderPanel.Visibility  = Visibility.Collapsed;
         Footer.Visibility           = Visibility.Visible;
 
-        CodeDisplay.Text        = "—";
-        CopyCodeBtn.IsEnabled   = false;
+        UsernameSection.Visibility = Visibility.Visible;
+        VoiceStrip.Visibility      = Visibility.Collapsed;
+        ChatPanel.Visibility       = Visibility.Collapsed;
+        RightSidebar.Visibility    = Visibility.Collapsed;
+
         LeaveCloseBtn.IsEnabled = false;
 
         MicBtn.IsEnabled         = false;
@@ -219,7 +270,6 @@ public partial class TestWindow : Window
         StopAudioPlayback();
         _remoteSharerUsername       = null;
         ScreenSharePanel.Visibility = Visibility.Collapsed;
-        TabScreenBtn.Visibility     = Visibility.Collapsed;
         ScreenFrameImage.Source     = null;
 
         MicBtn.Content        = "🎤 میکروفون";
@@ -234,7 +284,6 @@ public partial class TestWindow : Window
 
         ResetDebug();
         SetStatus("آماده", "#747F8D");
-        TabLog_Click(null!, null!);
     }
 
     // ── Event wiring ──────────────────────────────────────────────────────────
@@ -347,10 +396,8 @@ public partial class TestWindow : Window
             _remoteSharerUsername       = username;
             ScreenSharerLabel.Text      = $"صفحه‌نمایش  {username}";
             ScreenSharePanel.Visibility = Visibility.Visible;
-            TabScreenBtn.Visibility     = Visibility.Visible;
             ScreenShareBtn.IsEnabled    = false;
-            TabScreen_Click(null!, null!);
-            Log($"اشتراک صفحه توسط {username} شروع شد");
+            ShowScreenShare();
         });
 
         _room.ScreenShareFrame += (_, bytes) => Dispatch(() => ShowScreenFrame(bytes));
@@ -359,11 +406,9 @@ public partial class TestWindow : Window
         {
             _remoteSharerUsername       = null;
             ScreenSharePanel.Visibility = Visibility.Collapsed;
-            TabScreenBtn.Visibility     = Visibility.Collapsed;
             StopAudioPlayback();
             if (_p2p.PeerCount > 0) ScreenShareBtn.IsEnabled = true;
-            TabChat_Click(null!, null!);
-            Log($"اشتراک صفحه توسط {username} متوقف شد");
+            ShowChat();
         });
 
         // ── Chat ──────────────────────────────────────────────────────────────
@@ -407,7 +452,7 @@ public partial class TestWindow : Window
             _fileNotifs[info.Id] = notif;
             ChatList.Items.Add(notif);
             ChatList.ScrollIntoView(notif);
-            TabChat_Click(null!, null!);
+            ShowChat();
             this.Activate();
             Log($"[فایل] فایل دریافتی: {info.FileName}  ({sizeText})");
             VoiceStatus.Text = $"📎 فایل دریافتی: {info.FileName}";
@@ -488,65 +533,77 @@ public partial class TestWindow : Window
         SaveUsername(username);
         _chat.SetUsername(username);
 
-        var (ok, localIp, port) = await _room.CreateRoomAsync(username, port: 42777);
-        if (ok)
+        try
         {
-            DbgRole.Text = "Host";
-            RefreshMemberList();
-            string ipPort = $"{localIp}:{port}";
-            EnterRoom(ipPort, isHost: true);
+            var (ok, localIp, _) = await _room.CreateRoomAsync(username, port: GetPort(), ct: _opCts!.Token);
+            if (ok)
+            {
+                DbgRole.Text = "Host";
+                RefreshMemberList();
+                EnterRoom(localIp, isHost: true);
+            }
+            else
+            {
+                SetStatus("خطا در ایجاد Room", "#F04747");
+            }
         }
-        else
+        catch (OperationCanceledException)
         {
-            SetStatus("خطا در ایجاد Room", "#F04747");
+            _room.Shutdown();
+            SetStatus("لغو شد", "#747F8D");
         }
-        SetBusy(false);
+        finally
+        {
+            SetBusy(false);
+        }
     }
 
     private async void Join_Click(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
-        string input = JoinCodeBox.Text.Trim();
-        if (input.Length == 0)
+        string hostIp = JoinCodeBox.Text.Trim();
+        if (hostIp.Length == 0)
         {
-            MessageBox.Show("لطفاً IP:Port هاست را وارد کنید (مثال: 10.10.1.5:42777)", "خطا",
+            MessageBox.Show("لطفاً IP هاست را وارد کنید (مثال: 10.88.***.** )", "خطا",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
-        int colonIdx = input.LastIndexOf(':');
-        if (colonIdx < 0 || !ushort.TryParse(input[(colonIdx + 1)..], out ushort hostPort))
-        {
-            MessageBox.Show("فرمت نادرست — مثال: 10.10.1.5:42777", "خطا",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-        string hostIp = input[..colonIdx];
+        ushort hostPort = GetPort();
 
         SetBusy(true);
         SetStatus("در حال اتصال...", "#FAA61A");
-        Log($"تلاش اتصال به: {input}");
 
         string username = UsernameBox.Text.Trim() is { Length: > 0 } u ? u : "Guest";
         SaveUsername(username);
         _chat.SetUsername(username);
 
-        bool ok = await _room.JoinRoomAsync(hostIp, hostPort, username);
-        if (ok)
+        try
         {
-            DbgRole.Text = "Guest";
-            RefreshMemberList();
-            EnterRoom(input, isHost: false);
+            bool ok = await _room.JoinRoomAsync(hostIp, hostPort, username, _opCts!.Token);
+            if (ok)
+            {
+                DbgRole.Text = "Guest";
+                RefreshMemberList();
+                EnterRoom(hostIp, isHost: false);
+            }
+            else
+            {
+                SetStatus("اتصال ناموفق", "#F04747");
+                MessageBox.Show(
+                    "اتصال به هاست برقرار نشد.\n\nمطمئن شوید:\n• پکت رفت روی هر دو سیستم فعال است\n• IP صحیح است",
+                    "اتصال ناموفق", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
-        else
+        catch (OperationCanceledException)
         {
-            SetStatus("اتصال ناموفق", "#F04747");
-            Log("اتصال ناموفق — IP/Port را بررسی کنید و دوباره امتحان کنید");
-            MessageBox.Show(
-                "اتصال به هاست برقرار نشد.\n\nمطمئن شوید:\n• پکت رفت روی هر دو سیستم فعال است\n• IP و پورت صحیح است",
-                "اتصال ناموفق", MessageBoxButton.OK, MessageBoxImage.Warning);
+            _room.Shutdown();
+            SetStatus("لغو شد", "#747F8D");
         }
-        SetBusy(false);
+        finally
+        {
+            SetBusy(false);
+        }
     }
 
     private async void SaveUsername_Click(object sender, RoutedEventArgs e)
@@ -570,28 +627,19 @@ public partial class TestWindow : Window
         catch (OperationCanceledException) { }
     }
 
-    private async void CopyCode_Click(object sender, RoutedEventArgs e)
+    private void NavSettings_Click(object sender, RoutedEventArgs e) { }
+
+    private void NavDonate_Click(object sender, RoutedEventArgs e)
     {
-        string code = CodeDisplay.Text;
-        if (string.IsNullOrEmpty(code) || code == "—") return;
-
-        try { Clipboard.SetDataObject(code, copy: true); }
-        catch { try { Clipboard.SetText(code); } catch { } }
-
-        _copyCodeCts?.Cancel();
-        _copyCodeCts = new CancellationTokenSource();
-        var cts = _copyCodeCts;
-
-        CopyCodeBtn.Content    = "✓ کپی شد";
-        CopyCodeBtn.Background = new SolidColorBrush(Color.FromRgb(0x43, 0xB5, 0x81));
-        Log($"IP:Port کپی شد: {code}");
         try
         {
-            await Task.Delay(2000, cts.Token);
-            CopyCodeBtn.Content = "کپی";
-            CopyCodeBtn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName        = "https://donate.virtuallan.ir",
+                UseShellExecute = true
+            });
         }
-        catch (OperationCanceledException) { }
+        catch { }
     }
 
     private async void LeaveClose_Click(object sender, RoutedEventArgs e)
@@ -640,7 +688,7 @@ public partial class TestWindow : Window
         _fileNotifs[transferId] = notif;
         ChatList.Items.Add(notif);
         ChatList.ScrollIntoView(notif);
-        TabChat_Click(null!, null!);
+        ShowChat();
 
         _ = Task.Run(() => _file.SendFileAsync(path, transferId));
     }
@@ -654,48 +702,24 @@ public partial class TestWindow : Window
         _file.AcceptTransfer(notif.Id, savePath);
     }
 
-    // ── Chat ──────────────────────────────────────────────────────────────────
+    // ── Chat panel helpers ────────────────────────────────────────────────────
 
-    private void TabLog_Click(object sender, RoutedEventArgs e)
+    private void ShowChat()
     {
-        LogList.Visibility          = Visibility.Visible;
-        ChatList.Visibility         = Visibility.Collapsed;
-        ScreenSharePanel.Visibility = Visibility.Collapsed;
-        ChatInputArea.Visibility    = Visibility.Collapsed;
-        SetTabHighlight(TabLogBtn);
-    }
-
-    private void TabChat_Click(object sender, RoutedEventArgs e)
-    {
-        LogList.Visibility          = Visibility.Collapsed;
         ChatList.Visibility         = Visibility.Visible;
         ScreenSharePanel.Visibility = Visibility.Collapsed;
-        ChatInputArea.Visibility    = Visibility.Visible;
-        SetTabHighlight(TabChatBtn);
         ChatInput.Focus();
     }
 
-    private void TabScreen_Click(object sender, RoutedEventArgs e)
+    private void ShowScreenShare()
     {
-        LogList.Visibility          = Visibility.Collapsed;
         ChatList.Visibility         = Visibility.Collapsed;
         ScreenSharePanel.Visibility = Visibility.Visible;
-        ChatInputArea.Visibility    = Visibility.Collapsed;
-        SetTabHighlight(TabScreenBtn);
     }
 
-    private void SetTabHighlight(System.Windows.Controls.Button active)
+    private void CancelOp_Click(object sender, RoutedEventArgs e)
     {
-        var on    = new SolidColorBrush(Color.FromRgb(0x43, 0x61, 0xEE));
-        var off   = new SolidColorBrush(Colors.Transparent);
-        var white = new SolidColorBrush(Colors.White);
-        var dim   = new SolidColorBrush(Color.FromRgb(0xB9, 0xBB, 0xBE));
-
-        foreach (var btn in new[] { TabLogBtn, TabChatBtn, TabScreenBtn })
-        {
-            btn.BorderBrush = btn == active ? on  : off;
-            btn.Foreground  = btn == active ? white : dim;
-        }
+        _opCts?.Cancel();
     }
 
     private void SendChat_Click(object sender, RoutedEventArgs e) => DoSendChat();
@@ -794,10 +818,8 @@ public partial class TestWindow : Window
             ScreenShareBtn.Content      = "🖥  اشتراک صفحه";
             ScreenShareBtn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
             ScreenSharePanel.Visibility = Visibility.Collapsed;
-            TabScreenBtn.Visibility     = Visibility.Collapsed;
             ScreenFrameImage.Source     = null;
-            TabChat_Click(null!, null!);
-            Log("اشتراک صفحه متوقف شد");
+            ShowChat();
         }
         else
         {
@@ -813,9 +835,7 @@ public partial class TestWindow : Window
             ScreenShareBtn.Background   = new SolidColorBrush(Color.FromRgb(0xED, 0x42, 0x45));
             ScreenSharerLabel.Text      = "صفحه‌نمایش من";
             ScreenSharePanel.Visibility = Visibility.Visible;
-            TabScreenBtn.Visibility     = Visibility.Visible;
-            TabScreen_Click(null!, null!);
-            Log($"اشتراک صفحه شروع شد{(picker.ShareAudio ? " (با صدا)" : "")}");
+            ShowScreenShare();
         }
     }
 
@@ -885,10 +905,29 @@ public partial class TestWindow : Window
         _busy = busy;
         CreateBtn.IsEnabled = !busy;
         JoinBtn.IsEnabled   = !busy;
+        if (busy)
+        {
+            _opCts?.Cancel();
+            _opCts = new CancellationTokenSource();
+            CancelOpBtn.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            CancelOpBtn.Visibility = Visibility.Collapsed;
+            _opCts?.Cancel();
+            _opCts = null;
+        }
     }
 
-    private void Log(string msg)
-        => LogList.Items.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {msg}");
+    private static void Log(string _) { }
+
+    private ushort GetPort()
+    {
+        if (ushort.TryParse(PortBox.Text.Trim(), out ushort p) && p > 0)
+            return p;
+        PortBox.Text = "42777";
+        return 42777;
+    }
 
     private void Dispatch(Action a)
     {

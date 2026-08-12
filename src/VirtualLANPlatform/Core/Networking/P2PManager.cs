@@ -12,68 +12,39 @@ public enum PeerRole { None, Host, Guest }
 
 public record PeerInfo(int Id, string Username, IPEndPoint EndPoint, DateTime ConnectedAt);
 
-/// <summary>
-/// Core P2P connection manager built on LiteNetLib (UDP).
-///
-/// Phase 5: automatic ECDH key exchange on every new peer connection.
-/// After exchange, all payloads are encrypted with AES-256-GCM.
-/// KeyExchange messages themselves are always sent in plaintext.
-/// </summary>
 public sealed class P2PManager : INetEventListener, IDisposable
 {
-    // ── Public events ─────────────────────────────────────────────────────────
+    // ── Events ────────────────────────────────────────────────────────────────
 
-    public event Action<PeerInfo>?             PeerConnected;
-    public event Action<int, string>?          PeerDisconnected;
-    public event Action<int, MessageFrame>?    MessageReceived;
-    public event Action<string>?               StatusChanged;
-    public event Action<string, string>?       ConnectionFailed;
-    public event Action<int, bool>?            EncryptionEstablished; // peerId, isEncrypted
-    public event Action<string>?               ConnectionRejected;    // fires on Guest with rejection reason
+    public event Action<PeerInfo>?          PeerConnected;
+    public event Action<int, string>?       PeerDisconnected;
+    public event Action<int, MessageFrame>? MessageReceived;
+    public event Action<string>?            StatusChanged;
+    public event Action<string, string>?    ConnectionFailed;
+    public event Action<int, bool>?         EncryptionEstablished;
+    public event Action<string>?            ConnectionRejected;
 
-    // Host sets this to validate incoming guests: return null to accept, error string to reject
-    public Func<string, IPEndPoint, string?>?  ValidateGuest;
+    public Func<string, IPEndPoint, string?>? ValidateGuest;
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    public PeerRole   Role         { get; private set; } = PeerRole.None;
-    public bool       IsRunning    { get; private set; }
-    public int        PeerCount    => _peers.Count;
-    public NatStatus  NatStatus    => _nat.Status;
-    /// <summary>STUN-discovered external connection code (IP:port as base58).</summary>
-    public string     ExternalCode { get; private set; } = "";
+    public PeerRole Role      { get; private set; } = PeerRole.None;
+    public bool     IsRunning { get; private set; }
+    public int      PeerCount => _peers.Count;
 
-    // Returns true if the given peer has an established encryption session
     public bool IsEncrypted(int peerId) => _sessionKeys.ContainsKey(peerId);
 
     private readonly Dictionary<int, PeerInfo>  _peers            = [];
     private readonly Dictionary<string, string> _pendingUsernames = [];
-    private readonly Dictionary<int, byte[]>    _sessionKeys      = []; // peerId → AES key
+    private readonly Dictionary<int, byte[]>    _sessionKeys      = [];
     private readonly TransportLayer             _transport        = new();
-    private readonly UPnPManager               _upnp             = new();
-    private readonly PublicIPDiscovery          _ipDisc           = new();
-    private readonly NatTraversal              _nat;
-    private readonly CryptoEngine              _crypto            = new();
-    private NetManager? _net;
-    private CancellationTokenSource? _pollCts;
-
-    // NAT punch-through support
-    private bool   _acceptPunch = false;  // when true, Guest also accepts incoming connections
-    private ushort _boundPort   = 0;      // local UDP port bound by this manager
-    private CancellationTokenSource? _punchCts;
-
-    public P2PManager()
-    {
-        _nat = new NatTraversal(_upnp, _ipDisc);
-    }
+    private readonly CryptoEngine               _crypto           = new();
+    private NetManager?               _net;
+    private CancellationTokenSource?  _pollCts;
 
     // ── Host ──────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Returns LanCode (local IP — works on same machine and same LAN)
-    /// and InternetCode (public IP — works over the internet when UPnP/port-forward is active).
-    /// </summary>
-    public async Task<(bool Ok, string LanCode, string InternetCode)> StartAsHostAsync(
+    public Task<(bool Ok, string LocalIP, ushort Port)> StartAsHostAsync(
         string username, ushort port, CancellationToken ct = default)
     {
         Role = PeerRole.Host;
@@ -82,113 +53,53 @@ public sealed class P2PManager : INetEventListener, IDisposable
         if (!_net.Start(port))
         {
             ConnectionFailed?.Invoke("Host شروع نشد", $"پورت {port} در دسترس نیست.");
-            return (false, "", "");
+            return Task.FromResult((false, "", (ushort)0));
         }
 
-        _boundPort = port;
-        IsRunning  = true;
+        IsRunning = true;
         StartPollLoop();
-        StatusChanged?.Invoke("در حال کشف IP عمومی و NAT...");
-
-        string localIp = GetLocalIP();
-        await _nat.PrepareHostAsync(port, localIp, ct);
-
-        string lanCode      = ConnectionCodeEngine.Encode(IPAddress.Parse(localIp), port);
-        string internetCode = "";
-
-        // Use STUN to discover accurate external port (may differ from local port)
-        var (stunIp, stunPort) = await StunClient.DiscoverAsync(port, ct).ConfigureAwait(false);
-        if (stunIp != null)
-        {
-            internetCode = ConnectionCodeEngine.Encode(stunIp, stunPort);
-            ExternalCode = internetCode;
-            _nat.Status.PublicIP     = stunIp.ToString();
-            _nat.Status.ExternalPort = stunPort;
-        }
-        else if (_nat.Status.PublicIP is { } pub && pub != "کشف نشد")
-        {
-            ushort extPort = _nat.Status.ExternalPort ?? port;
-            internetCode = ConnectionCodeEngine.Encode(IPAddress.Parse(pub), extPort);
-            ExternalCode = internetCode;
-        }
-
         StatusChanged?.Invoke("آماده — منتظر اتصال");
-        return (true, lanCode, internetCode);
+        return Task.FromResult((true, GetLocalIP(), port));
     }
 
     // ── Guest ─────────────────────────────────────────────────────────────────
 
     public async Task<bool> ConnectAsGuestAsync(
-        string connectionCode, string username, CancellationToken ct = default)
+        string hostIp, ushort hostPort, string username, CancellationToken ct = default)
     {
         Role = PeerRole.Guest;
 
-        (IPAddress hostIp, ushort hostPort) target;
-        try   { target = ConnectionCodeEngine.Decode(connectionCode); }
-        catch (FormatException ex)
-        {
-            ConnectionFailed?.Invoke("Connection Code نامعتبر", ex.Message);
-            return false;
-        }
-
-        // Shutdown any previous (failed) attempt before starting fresh
         if (_net != null && IsRunning)
         {
-            _punchCts?.Cancel();
             _net.Stop();
             _net = null;
             _sessionKeys.Clear();
             _peers.Clear();
         }
-        _acceptPunch = false;
 
         _net = BuildNetManager();
-
-        // Try to bind to a predictable port so STUN mapping is stable
-        const ushort GuestPort = 42778;
-        bool started = _net.Start(GuestPort);
-        if (!started)
-        {
-            started = _net.Start(); // fall back to random port
-            _boundPort = 0;
-        }
-        else
-        {
-            _boundPort = GuestPort;
-        }
-
-        if (!started)
+        if (!_net.Start())
         {
             ConnectionFailed?.Invoke("Guest شروع نشد", "خطا در راه‌اندازی شبکه.");
             return false;
         }
 
-        // Discover external endpoint via STUN while still trying to connect
-        _ = Task.Run(async () =>
-        {
-            var (stunIp, stunPort) = await StunClient.DiscoverAsync(_boundPort, ct).ConfigureAwait(false);
-            if (stunIp != null)
-                ExternalCode = ConnectionCodeEngine.Encode(stunIp, stunPort);
-        }, ct);
-
         IsRunning = true;
         StartPollLoop();
-        // ‪ = LTR embedding, ‬ = pop — prevents RTL font from rendering dots as slashes
-        StatusChanged?.Invoke($"در حال اتصال به هاست ‪{target.hostIp}:{target.hostPort}‬ ...");
+        StatusChanged?.Invoke("در حال اتصال...");
 
         var authData = new NetDataWriter();
         authData.Put(username);
 
-        var peer = _net.Connect(target.hostIp.ToString(), target.hostPort, authData);
+        var peer = _net.Connect(hostIp, hostPort, authData);
         if (peer == null)
         {
             Shutdown();
-            ConnectionFailed?.Invoke("اتصال شکست خورد", NatTraversal.GetFailureGuidance());
+            ConnectionFailed?.Invoke("اتصال شکست خورد", "آدرس یا پورت نامعتبر است.");
             return false;
         }
 
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
         void OnConnected(PeerInfo _)    => tcs.TrySetResult(true);
         void OnFailed(int _, string __) => tcs.TrySetResult(false);
 
@@ -198,12 +109,12 @@ public sealed class P2PManager : INetEventListener, IDisposable
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
             return await tcs.Task.WaitAsync(timeout.Token);
         }
         catch (OperationCanceledException)
         {
-            ConnectionFailed?.Invoke("Timeout", NatTraversal.GetFailureGuidance());
+            ConnectionFailed?.Invoke("Timeout", "هاست پاسخ نداد — آدرس را بررسی کنید.");
             return false;
         }
         finally
@@ -233,7 +144,6 @@ public sealed class P2PManager : INetEventListener, IDisposable
     private void SendToPeerInternal(NetPeer peer, MessageType type, byte[] payload,
         DeliveryMethod method)
     {
-        // KeyExchange is always plaintext — everything else is encrypted if key is ready
         byte[] finalPayload = (type != MessageType.KeyExchange
             && _sessionKeys.TryGetValue(peer.Id, out byte[]? key))
             ? CryptoEngine.Encrypt(key, payload)
@@ -246,13 +156,14 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
     public void Shutdown()
     {
-        IsRunning    = false;
-        _acceptPunch = false;
-        _punchCts?.Cancel();
+        IsRunning = false;
         _pollCts?.Cancel();
         _net?.Stop();
         _sessionKeys.Clear();
     }
+
+    public void DisconnectPeer(int peerId)
+        => _net?.GetPeerById(peerId)?.Disconnect();
 
     // ── INetEventListener ────────────────────────────────────────────────────
 
@@ -276,85 +187,13 @@ public sealed class P2PManager : INetEventListener, IDisposable
             _pendingUsernames[request.RemoteEndPoint.ToString()] = username;
             request.Accept();
         }
-        else if (Role == PeerRole.Guest && _acceptPunch)
-        {
-            // Accept reverse connection from Host during NAT hole-punch
-            string username = request.Data.AvailableBytes > 0
-                ? request.Data.GetString()
-                : "Host";
-            _pendingUsernames[request.RemoteEndPoint.ToString()] = username;
-            request.Accept();
-        }
         else
             request.Reject();
     }
 
-    public void DisconnectPeer(int peerId)
-        => _net?.GetPeerById(peerId)?.Disconnect();
-
-    /// <summary>
-    /// Initiates a connection to <paramref name="peerCode"/> while simultaneously
-    /// accepting incoming connections — implements UDP hole punching.
-    /// Call on Host side when Guest's direct connect failed.
-    /// </summary>
-    public void PunchConnect(string peerCode, string username)
-    {
-        if (_net == null || !IsRunning) return;
-        try
-        {
-            var (ip, port) = ConnectionCodeEngine.Decode(peerCode);
-            var authData   = new NetDataWriter();
-            authData.Put(username);
-            _net.Connect(ip.ToString(), port, authData);
-            StatusChanged?.Invoke($"NAT Punch — در حال اتصال به ‪{ip}:{port}‬");
-        }
-        catch (Exception ex)
-        {
-            ConnectionFailed?.Invoke("کد نامعتبر", ex.Message);
-        }
-    }
-
-    /// <summary>
-    /// Called on Guest side after direct connect timeout.
-    /// Keeps the P2P socket alive, accepts reverse connections from Host,
-    /// and periodically retries outbound connect to Host to keep the NAT hole open.
-    /// </summary>
-    public void EnterPunchMode(string hostCode, string username)
-    {
-        if (_net == null) return;
-        _acceptPunch = true;
-
-        _punchCts?.Cancel();
-        _punchCts = new CancellationTokenSource();
-        var token = _punchCts.Token;
-
-        StatusChanged?.Invoke("منتظر اتصال متقابل از هاست...");
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var (ip, port) = ConnectionCodeEngine.Decode(hostCode);
-                while (!token.IsCancellationRequested)
-                {
-                    // Keep punching Guest's NAT toward Host so Host's packets can come back
-                    var authData = new NetDataWriter();
-                    authData.Put(username);
-                    _net?.Connect(ip.ToString(), port, authData);
-                    await Task.Delay(3000, token);
-                }
-            }
-            catch { }
-        }, token);
-    }
-
     public void OnPeerConnected(NetPeer peer)
     {
-        // Stop punch loop the moment any connection succeeds
-        _punchCts?.Cancel();
-        _acceptPunch = false;
-
-        string epKey = peer.EndPoint.ToString();
+        string epKey   = peer.EndPoint.ToString();
         string username = Role == PeerRole.Host
             ? (_pendingUsernames.TryGetValue(epKey, out string? u) ? u : $"Guest_{peer.Id}")
             : "Host";
@@ -363,7 +202,6 @@ public sealed class P2PManager : INetEventListener, IDisposable
         var info = new PeerInfo(peer.Id, username, peer.EndPoint, DateTime.UtcNow);
         _peers[peer.Id] = info;
 
-        // Immediately send our public key — key exchange before anything else
         SendKeyExchange(peer);
 
         StatusChanged?.Invoke($"متصل — {_peers.Count} کاربر");
@@ -375,7 +213,6 @@ public sealed class P2PManager : INetEventListener, IDisposable
         _peers.Remove(peer.Id);
         _sessionKeys.Remove(peer.Id);
 
-        // Connection was rejected by Host — fire rejection event and unblock ConnectAsGuestAsync
         if (di.Reason == DisconnectReason.ConnectionRejected)
         {
             string msg = di.AdditionalData.AvailableBytes > 0
@@ -388,18 +225,14 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
         string reason = di.Reason switch
         {
-            DisconnectReason.ConnectionFailed      => "اتصال برقرار نشد — " + NatTraversal.GetFailureGuidance(),
+            DisconnectReason.ConnectionFailed      => "اتصال برقرار نشد",
             DisconnectReason.Timeout               => "اتصال Timeout شد",
             DisconnectReason.RemoteConnectionClose => "طرف مقابل اتصال را قطع کرد",
-            DisconnectReason.HostUnreachable       => NatTraversal.GetFailureGuidance(),
+            DisconnectReason.HostUnreachable       => "هاست در دسترس نیست",
             _                                      => di.Reason.ToString()
         };
 
-        // Only report "disconnected" when a live session drops; a failed initial attempt
-        // is handled by the caller (ConnectAsGuestAsync / Join_Click).
-        if (_peers.Count > 0)
-            StatusChanged?.Invoke($"متصل — {_peers.Count} کاربر");
-        else if (_peers.Count == 0 && di.Reason == DisconnectReason.RemoteConnectionClose)
+        if (_peers.Count == 0 && di.Reason == DisconnectReason.RemoteConnectionClose)
             StatusChanged?.Invoke("قطع شده");
 
         PeerDisconnected?.Invoke(peer.Id, reason);
@@ -416,10 +249,9 @@ public sealed class P2PManager : INetEventListener, IDisposable
             if (frame.Type == MessageType.KeyExchange)
             {
                 HandleKeyExchange(peer.Id, frame.Payload.ToArray());
-                return; // don't forward KeyExchange to higher layers
+                return;
             }
 
-            // Decrypt if session key is established
             if (_sessionKeys.TryGetValue(peer.Id, out byte[]? key))
             {
                 try
@@ -427,10 +259,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
                     byte[] plain = CryptoEngine.Decrypt(key, frame.Payload.ToArray());
                     frame = new MessageFrame(frame.Type, plain);
                 }
-                catch (CryptographicException)
-                {
-                    return; // tampered or wrong key — discard silently
-                }
+                catch (CryptographicException) { return; }
             }
 
             MessageReceived?.Invoke(peer.Id, frame);
@@ -439,10 +268,8 @@ public sealed class P2PManager : INetEventListener, IDisposable
     }
 
     public void OnNetworkLatencyUpdate(NetPeer peer, int latency) { }
-
     public void OnNetworkError(IPEndPoint endPoint, SocketError socketError)
-        => ConnectionFailed?.Invoke("خطای شبکه", $"{socketError} — {endPoint}");
-
+        => ConnectionFailed?.Invoke("خطای شبکه", $"{socketError}");
     public void OnNetworkReceiveUnconnected(IPEndPoint _, NetPacketReader __, UnconnectedMessageType ___) { }
 
     // ── Key exchange ──────────────────────────────────────────────────────────
@@ -450,7 +277,6 @@ public sealed class P2PManager : INetEventListener, IDisposable
     private void SendKeyExchange(NetPeer peer)
     {
         byte[] pubKey = _crypto.ExportPublicKey();
-        // Send as plaintext — public keys are not secret
         peer.Send(WrapPayload(_transport.Pack(MessageType.KeyExchange, pubKey)),
             DeliveryMethod.ReliableOrdered);
     }
@@ -462,7 +288,6 @@ public sealed class P2PManager : INetEventListener, IDisposable
             byte[] sessionKey = _crypto.DeriveSessionKey(peerPublicKey);
             _sessionKeys[peerId] = sessionKey;
             EncryptionEstablished?.Invoke(peerId, true);
-            StatusChanged?.Invoke($"رمزنگاری برقرار شد — Peer {peerId}");
         }
         catch
         {
@@ -502,7 +327,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
         return w;
     }
 
-    private static string GetLocalIP()
+    public static string GetLocalIP()
     {
         try
         {
@@ -517,9 +342,6 @@ public sealed class P2PManager : INetEventListener, IDisposable
     {
         Shutdown();
         _crypto.Dispose();
-        _upnp.Dispose();
-        _ipDisc.Dispose();
         _pollCts?.Dispose();
-        _punchCts?.Dispose();
     }
 }

@@ -1,13 +1,7 @@
-using Microsoft.Data.Sqlite;
-using VirtualLANPlatform.Core.Room;
-
 namespace VirtualLANPlatform.Core.Storage;
 
-/// <summary>Persists Room and Member records to SQLite.</summary>
 public sealed class RoomRepository(DatabaseManager db)
 {
-    // ── Rooms ─────────────────────────────────────────────────────────────────
-
     public void SaveRoom(string roomId, string hostUsername, int localPort)
     {
         using var cmd = db.CreateCommand();
@@ -21,50 +15,27 @@ public sealed class RoomRepository(DatabaseManager db)
         cmd.ExecuteNonQuery();
     }
 
-    // ── Members ───────────────────────────────────────────────────────────────
-
-    public void RecordJoin(string roomId, MemberRecord m)
+    public void RecordJoin(string roomId, string username)
     {
         using var cmd = db.CreateCommand();
         cmd.CommandText = @"
-            INSERT INTO room_members (room_id, username, virtual_ip, joined_at)
-            VALUES ($rid, $u, $vip, $ts);";
+            INSERT INTO room_members (room_id, username, joined_at)
+            VALUES ($rid, $u, $ts);";
         cmd.Parameters.AddWithValue("$rid", roomId);
-        cmd.Parameters.AddWithValue("$u",   m.Username);
-        cmd.Parameters.AddWithValue("$vip", m.VirtualIP);
-        cmd.Parameters.AddWithValue("$ts",  new DateTimeOffset(m.JoinedAt).ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("$u",   username);
+        cmd.Parameters.AddWithValue("$ts",  DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         cmd.ExecuteNonQuery();
     }
 
-    public void RecordLeave(string roomId, string virtualIP)
+    public void RecordLeave(string roomId, string username)
     {
         using var cmd = db.CreateCommand();
         cmd.CommandText = @"
-            UPDATE room_members
-            SET left_at = $ts
-            WHERE room_id = $rid AND virtual_ip = $vip AND left_at IS NULL;";
+            UPDATE room_members SET left_at = $ts
+            WHERE room_id = $rid AND username = $u AND left_at IS NULL;";
         cmd.Parameters.AddWithValue("$ts",  DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("$rid", roomId);
-        cmd.Parameters.AddWithValue("$vip", virtualIP);
+        cmd.Parameters.AddWithValue("$u",   username);
         cmd.ExecuteNonQuery();
-    }
-
-    // ── History query ─────────────────────────────────────────────────────────
-
-    /// <summary>Returns the 20 most recent rooms, newest first.</summary>
-    public List<(string Id, DateTime CreatedAt, string HostUsername)> GetRecentRooms()
-    {
-        var list = new List<(string, DateTime, string)>();
-        using var cmd = db.CreateCommand();
-        cmd.CommandText =
-            "SELECT id, created_at, host_username FROM rooms ORDER BY created_at DESC LIMIT 20;";
-
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
-        {
-            var ts = DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(1)).UtcDateTime;
-            list.Add((reader.GetString(0), ts, reader.GetString(2)));
-        }
-        return list;
     }
 }

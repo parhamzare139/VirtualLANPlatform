@@ -5,15 +5,15 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using NAudio.Wave;
 // Explicit aliases resolve WinForms vs WPF conflicts
-using Clipboard      = System.Windows.Clipboard;
-using Color          = System.Windows.Media.Color;
-using Colors         = System.Windows.Media.Colors;
-using Key            = System.Windows.Input.Key;
-using KeyEventArgs   = System.Windows.Input.KeyEventArgs;
-using MessageBox     = System.Windows.MessageBox;
+using Clipboard        = System.Windows.Clipboard;
+using Color            = System.Windows.Media.Color;
+using Colors           = System.Windows.Media.Colors;
+using Key              = System.Windows.Input.Key;
+using KeyEventArgs     = System.Windows.Input.KeyEventArgs;
+using MessageBox       = System.Windows.MessageBox;
 using MessageBoxButton = System.Windows.MessageBoxButton;
 using MessageBoxImage  = System.Windows.MessageBoxImage;
-using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
+using OpenFileDialog   = Microsoft.Win32.OpenFileDialog;
 using VirtualLANPlatform.Core.Chat;
 using VirtualLANPlatform.Core.FileTransfer;
 using VirtualLANPlatform.Core.Networking;
@@ -22,20 +22,18 @@ using VirtualLANPlatform.Core.Room;
 using VirtualLANPlatform.Core.ScreenShare;
 using VirtualLANPlatform.Core.Services;
 using VirtualLANPlatform.Core.Storage;
-using VirtualLANPlatform.Core.VirtualNetwork;
 using VirtualLANPlatform.Core.Voice;
 
 namespace VirtualLANPlatform.UI.Views;
 
 public partial class TestWindow : Window
 {
-    private readonly DatabaseManager       _db   = new();
-    private readonly P2PManager            _p2p  = new();
-    private readonly VirtualNetworkManager _vnet = new();
-    private readonly RoomManager           _room;
-    private readonly ChatManager           _chat;
-    private readonly VoiceManager          _voice;
-    private readonly FileManager           _file;
+    private readonly DatabaseManager _db   = new();
+    private readonly P2PManager      _p2p  = new();
+    private readonly RoomManager     _room;
+    private readonly ChatManager     _chat;
+    private readonly VoiceManager    _voice;
+    private readonly FileManager     _file;
 
     private readonly Dictionary<string, FileNotification> _fileNotifs = new();
 
@@ -43,11 +41,7 @@ public partial class TestWindow : Window
     private bool _busy;
 
     private CancellationTokenSource? _copyCodeCts;
-    private CancellationTokenSource? _copyVipCts;
     private CancellationTokenSource? _saveUserCts;
-    private CancellationTokenSource? _copyInternetCts;
-    private CancellationTokenSource? _copyMyCodeCts;
-    private string _lastHostCode = ""; // saved for Guest punch retry
     private readonly System.Windows.Threading.DispatcherTimer _memberTimer;
 
     private readonly ScreenShareManager _screenShare = new();
@@ -65,7 +59,7 @@ public partial class TestWindow : Window
     public TestWindow()
     {
         InitializeComponent();
-        _room  = new RoomManager(_p2p, _vnet, _db);
+        _room  = new RoomManager(_p2p, _db);
         _chat  = new ChatManager(_p2p);
         _voice = new VoiceManager(_p2p);
         _file  = new FileManager(_p2p);
@@ -77,7 +71,6 @@ public partial class TestWindow : Window
 
         InitTrayIcon();
         WireEvents();
-        ShowWinTunVersion();
         LoadSavedUsername();
         LoadWindowIcon();
     }
@@ -160,7 +153,7 @@ public partial class TestWindow : Window
             }
             else
             {
-                MessageBeep(0x00000040); // MB_ICONASTERISK fallback
+                MessageBeep(0x00000040);
             }
         }
         catch { }
@@ -168,7 +161,7 @@ public partial class TestWindow : Window
 
     // ── Room navigation ───────────────────────────────────────────────────────
 
-    private void EnterRoom(string code, bool isHost)
+    private void EnterRoom(string ipPort, bool isHost)
     {
         LobbyActions.Visibility     = Visibility.Collapsed;
         LobbyHeaderPanel.Visibility = Visibility.Collapsed;
@@ -189,13 +182,11 @@ public partial class TestWindow : Window
             new CubicEase { EasingMode = EasingMode.EaseOut });
         enterSb.Begin();
 
-        CodeDisplay.Text      = string.IsNullOrEmpty(code) ? "—" : code;
-        CopyCodeBtn.IsEnabled = !string.IsNullOrEmpty(code);
+        CodeDisplay.Text      = string.IsNullOrEmpty(ipPort) ? "—" : ipPort;
+        CopyCodeBtn.IsEnabled = !string.IsNullOrEmpty(ipPort) && ipPort != "—";
 
         LeaveCloseBtn.Content   = isHost ? "بستن Room" : "خروج از Room";
         LeaveCloseBtn.IsEnabled = true;
-
-        HostVipDisplay.Text = RoomManager.HostVIP;
 
         SetStatus(isHost ? "Host — منتظر اتصال" : "متصل", "#43B581");
         Log($"وارد Room شدید — نقش: {(isHost ? "Host" : "Guest")}");
@@ -204,13 +195,13 @@ public partial class TestWindow : Window
 
     private void LeaveRoom()
     {
-        LobbyActions.Visibility    = Visibility.Visible;
+        LobbyActions.Visibility     = Visibility.Visible;
         LobbyHeaderPanel.Visibility = Visibility.Visible;
         RoomHeaderPanel.Visibility  = Visibility.Collapsed;
         Footer.Visibility           = Visibility.Visible;
 
-        CodeDisplay.Text      = "—";
-        CopyCodeBtn.IsEnabled = false;
+        CodeDisplay.Text        = "—";
+        CopyCodeBtn.IsEnabled   = false;
         LeaveCloseBtn.IsEnabled = false;
 
         MicBtn.IsEnabled         = false;
@@ -226,10 +217,10 @@ public partial class TestWindow : Window
             ScreenShareBtn.Background = new SolidColorBrush(Color.FromRgb(0x2E, 0x30, 0x35));
         }
         StopAudioPlayback();
-        _remoteSharerUsername         = null;
-        ScreenSharePanel.Visibility   = Visibility.Collapsed;
-        TabScreenBtn.Visibility       = Visibility.Collapsed;
-        ScreenFrameImage.Source       = null;
+        _remoteSharerUsername       = null;
+        ScreenSharePanel.Visibility = Visibility.Collapsed;
+        TabScreenBtn.Visibility     = Visibility.Collapsed;
+        ScreenFrameImage.Source     = null;
 
         MicBtn.Content        = "🎤 میکروفون";
         SpeakerBtn.Content    = "🔊 اسپیکر";
@@ -241,13 +232,6 @@ public partial class TestWindow : Window
         _fileNotifs.Clear();
         VoiceStatus.Text = "—";
 
-        NatPunchSection.Visibility    = Visibility.Collapsed;
-        PunchSection.Visibility       = Visibility.Collapsed;
-        InternetCodeDisplay.Text      = "—";
-        CopyInternetCodeBtn.IsEnabled = false;
-        GuestPunchCodeBox.Text        = "";
-        MyExternalCodeBox.Text        = "";
-
         ResetDebug();
         SetStatus("آماده", "#747F8D");
         TabLog_Click(null!, null!);
@@ -258,7 +242,6 @@ public partial class TestWindow : Window
     private void WireEvents()
     {
         _room.StatusChanged += msg => Dispatch(() => { StatusLabel.Text = msg; Log(msg); });
-
 
         _p2p.StatusChanged += msg => Dispatch(() => { StatusLabel.Text = msg; Log(msg); });
 
@@ -330,7 +313,7 @@ public partial class TestWindow : Window
 
         _room.MemberJoined += m => Dispatch(() =>
         {
-            Log($"عضو جدید: {m.Username}  IP: {m.VirtualIP}");
+            Log($"عضو جدید: {m.Username}");
             RefreshMemberList();
         });
 
@@ -348,13 +331,6 @@ public partial class TestWindow : Window
             LeaveRoom();
         });
 
-        _vnet.StatusChanged += msg => Dispatch(() =>
-        {
-            DbgVLanStatus.Text = msg;
-            DbgVirtualIP.Text  = _room.MyVIP ?? "—";
-            Log($"[VNet] {msg}");
-        });
-
         // ── Screen Share ──────────────────────────────────────────────────────
         _screenShare.FrameCaptured += bytes =>
         {
@@ -368,11 +344,11 @@ public partial class TestWindow : Window
 
         _room.ScreenShareStarted += username => Dispatch(() =>
         {
-            _remoteSharerUsername         = username;
-            ScreenSharerLabel.Text        = $"صفحه‌نمایش  {username}";
-            ScreenSharePanel.Visibility   = Visibility.Visible;
-            TabScreenBtn.Visibility       = Visibility.Visible;
-            ScreenShareBtn.IsEnabled      = false; // only the sharer can stop their own share
+            _remoteSharerUsername       = username;
+            ScreenSharerLabel.Text      = $"صفحه‌نمایش  {username}";
+            ScreenSharePanel.Visibility = Visibility.Visible;
+            TabScreenBtn.Visibility     = Visibility.Visible;
+            ScreenShareBtn.IsEnabled    = false;
             TabScreen_Click(null!, null!);
             Log($"اشتراک صفحه توسط {username} شروع شد");
         });
@@ -381,9 +357,9 @@ public partial class TestWindow : Window
 
         _room.ScreenShareStopped += username => Dispatch(() =>
         {
-            _remoteSharerUsername         = null;
-            ScreenSharePanel.Visibility   = Visibility.Collapsed;
-            TabScreenBtn.Visibility       = Visibility.Collapsed;
+            _remoteSharerUsername       = null;
+            ScreenSharePanel.Visibility = Visibility.Collapsed;
+            TabScreenBtn.Visibility     = Visibility.Collapsed;
             StopAudioPlayback();
             if (_p2p.PeerCount > 0) ScreenShareBtn.IsEnabled = true;
             TabChat_Click(null!, null!);
@@ -413,7 +389,6 @@ public partial class TestWindow : Window
         _voice.StatusChanged += msg => Dispatch(() => VoiceStatus.Text = msg);
 
         // ── File transfer ──────────────────────────────────────────────────────
-
         _file.IncomingFile += info => Dispatch(() =>
         {
             string sizeText = info.Size < 1024 * 1024
@@ -501,19 +476,6 @@ public partial class TestWindow : Window
         });
     }
 
-    // ── Startup ───────────────────────────────────────────────────────────────
-
-    private void ShowWinTunVersion()
-    {
-        try
-        {
-            uint v = VirtualAdapter.GetDriverVersion();
-            // v==0 means DLL loaded but no adapter active yet — driver loads on first connect
-            DbgWinTun.Text = v == 0 ? "آماده" : $"{v >> 16}.{v & 0xFFFF}";
-        }
-        catch { DbgWinTun.Text = "DLL یافت نشد"; }
-    }
-
     // ── Button handlers ───────────────────────────────────────────────────────
 
     private async void CreateRoom_Click(object sender, RoutedEventArgs e)
@@ -526,20 +488,13 @@ public partial class TestWindow : Window
         SaveUsername(username);
         _chat.SetUsername(username);
 
-        var (ok, lanCode, internetCode) = await _room.CreateRoomAsync(username, port: 42777);
+        var (ok, localIp, port) = await _room.CreateRoomAsync(username, port: 42777);
         if (ok)
         {
             DbgRole.Text = "Host";
-            UpdateP2PDebug();
             RefreshMemberList();
-
-            // Show internet code (STUN-discovered) separately from LAN code
-            string extCode = _p2p.ExternalCode is { Length: > 0 } ec ? ec : internetCode;
-            InternetCodeDisplay.Text      = extCode.Length > 0 ? extCode : "—";
-            CopyInternetCodeBtn.IsEnabled = extCode.Length > 0;
-            PunchSection.Visibility       = Visibility.Visible;
-
-            EnterRoom(lanCode, isHost: true);
+            string ipPort = $"{localIp}:{port}";
+            EnterRoom(ipPort, isHost: true);
         }
         else
         {
@@ -551,81 +506,47 @@ public partial class TestWindow : Window
     private async void Join_Click(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
-        string code = JoinCodeBox.Text.Trim();
-        if (code.Length == 0)
+        string input = JoinCodeBox.Text.Trim();
+        if (input.Length == 0)
         {
-            MessageBox.Show("لطفاً Connection Code را وارد کنید.", "خطا",
+            MessageBox.Show("لطفاً IP:Port هاست را وارد کنید (مثال: 10.10.1.5:42777)", "خطا",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
+        int colonIdx = input.LastIndexOf(':');
+        if (colonIdx < 0 || !ushort.TryParse(input[(colonIdx + 1)..], out ushort hostPort))
+        {
+            MessageBox.Show("فرمت نادرست — مثال: 10.10.1.5:42777", "خطا",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        string hostIp = input[..colonIdx];
+
         SetBusy(true);
         SetStatus("در حال اتصال...", "#FAA61A");
-        Log($"تلاش اتصال: {code}");
-        _lastHostCode = code;
+        Log($"تلاش اتصال به: {input}");
 
         string username = UsernameBox.Text.Trim() is { Length: > 0 } u ? u : "Guest";
         SaveUsername(username);
         _chat.SetUsername(username);
 
-        bool ok = await _room.JoinRoomAsync(code, username);
+        bool ok = await _room.JoinRoomAsync(hostIp, hostPort, username);
         if (ok)
         {
             DbgRole.Text = "Guest";
-            NatPunchSection.Visibility = Visibility.Collapsed;
             RefreshMemberList();
-            EnterRoom(code, isHost: false);
+            EnterRoom(input, isHost: false);
         }
         else
         {
-            // Direct connect failed — enter punch mode immediately and discover external code
-            SetStatus("اتصال مستقیم ناموفق — در حال تلاش NAT Punch...", "#FAA61A");
-            Log("اتصال مستقیم ناموفق — حالت NAT Punch فعال شد");
-
-            MyExternalCodeBox.Text     = "در حال کشف...";
-            NatPunchSection.Visibility = Visibility.Visible;
-            _p2p.EnterPunchMode(code, username);
-
-            // Poll up to 10 s for STUN to return our external code
-            _ = Task.Run(async () =>
-            {
-                for (int i = 0; i < 20; i++)
-                {
-                    await Task.Delay(500);
-                    string myCode = _p2p.ExternalCode;
-                    if (myCode.Length > 0)
-                    {
-                        Dispatch(() =>
-                        {
-                            MyExternalCodeBox.Text = myCode;
-                            SetStatus("منتظر اتصال متقابل از هاست...", "#FAA61A");
-                        });
-                        break;
-                    }
-                }
-            });
+            SetStatus("اتصال ناموفق", "#F04747");
+            Log("اتصال ناموفق — IP/Port را بررسی کنید و دوباره امتحان کنید");
+            MessageBox.Show(
+                "اتصال به هاست برقرار نشد.\n\nمطمئن شوید:\n• پکت رفت روی هر دو سیستم فعال است\n• IP و پورت صحیح است",
+                "اتصال ناموفق", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         SetBusy(false);
-    }
-
-    private async void CopyHostVip_Click(object sender, RoutedEventArgs e)
-    {
-        try { Clipboard.SetDataObject(HostVipDisplay.Text, copy: true); }
-        catch { try { Clipboard.SetText(HostVipDisplay.Text); } catch { } }
-
-        _copyVipCts?.Cancel();
-        _copyVipCts = new CancellationTokenSource();
-        var cts = _copyVipCts;
-
-        CopyHostVipBtn.Content    = "✓ کپی شد";
-        CopyHostVipBtn.Background = new SolidColorBrush(Color.FromRgb(0x43, 0xB5, 0x81));
-        try
-        {
-            await Task.Delay(1800, cts.Token);
-            CopyHostVipBtn.Content = "کپی IP";
-            CopyHostVipBtn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
-        }
-        catch (OperationCanceledException) { }
     }
 
     private async void SaveUsername_Click(object sender, RoutedEventArgs e)
@@ -663,77 +584,14 @@ public partial class TestWindow : Window
 
         CopyCodeBtn.Content    = "✓ کپی شد";
         CopyCodeBtn.Background = new SolidColorBrush(Color.FromRgb(0x43, 0xB5, 0x81));
-        Log($"Connection Code کپی شد: {code}");
+        Log($"IP:Port کپی شد: {code}");
         try
         {
             await Task.Delay(2000, cts.Token);
-            CopyCodeBtn.Content = "کپی کد";
+            CopyCodeBtn.Content = "کپی";
             CopyCodeBtn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
         }
         catch (OperationCanceledException) { }
-    }
-
-    private async void CopyInternetCode_Click(object sender, RoutedEventArgs e)
-    {
-        string code = InternetCodeDisplay.Text;
-        if (string.IsNullOrEmpty(code) || code == "—") return;
-
-        try { Clipboard.SetDataObject(code, copy: true); }
-        catch { try { Clipboard.SetText(code); } catch { } }
-
-        _copyInternetCts?.Cancel();
-        _copyInternetCts = new CancellationTokenSource();
-        var cts = _copyInternetCts;
-
-        CopyInternetCodeBtn.Content    = "✓ کپی شد";
-        CopyInternetCodeBtn.Background = new SolidColorBrush(Color.FromRgb(0x43, 0xB5, 0x81));
-        Log($"کد اینترنت کپی شد: {code}");
-        try
-        {
-            await Task.Delay(2000, cts.Token);
-            CopyInternetCodeBtn.Content = "کپی";
-            CopyInternetCodeBtn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
-        }
-        catch (OperationCanceledException) { }
-    }
-
-    private async void CopyMyCode_Click(object sender, RoutedEventArgs e)
-    {
-        string code = MyExternalCodeBox.Text;
-        if (string.IsNullOrEmpty(code)) return;
-
-        try { Clipboard.SetDataObject(code, copy: true); }
-        catch { try { Clipboard.SetText(code); } catch { } }
-
-        _copyMyCodeCts?.Cancel();
-        _copyMyCodeCts = new CancellationTokenSource();
-        var cts = _copyMyCodeCts;
-
-        var btn = (System.Windows.Controls.Button)sender;
-        btn.Content    = "✓";
-        btn.Background = new SolidColorBrush(Color.FromRgb(0x43, 0xB5, 0x81));
-        try
-        {
-            await Task.Delay(1800, cts.Token);
-            btn.Content = "کپی";
-            btn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
-        }
-        catch (OperationCanceledException) { }
-    }
-
-    private void PunchConnect_Click(object sender, RoutedEventArgs e)
-    {
-        string guestCode = GuestPunchCodeBox.Text.Trim();
-        if (guestCode.Length == 0)
-        {
-            MessageBox.Show("لطفاً کد مهمان را وارد کنید.", "خطا",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        string username = UsernameBox.Text.Trim() is { Length: > 0 } u ? u : "Host";
-        _p2p.PunchConnect(guestCode, username);
-        Log($"NAT Punch آغاز شد — کد مهمان: {guestCode}");
     }
 
     private async void LeaveClose_Click(object sender, RoutedEventArgs e)
@@ -800,36 +658,36 @@ public partial class TestWindow : Window
 
     private void TabLog_Click(object sender, RoutedEventArgs e)
     {
-        LogList.Visibility        = Visibility.Visible;
-        ChatList.Visibility       = Visibility.Collapsed;
+        LogList.Visibility          = Visibility.Visible;
+        ChatList.Visibility         = Visibility.Collapsed;
         ScreenSharePanel.Visibility = Visibility.Collapsed;
-        ChatInputArea.Visibility  = Visibility.Collapsed;
+        ChatInputArea.Visibility    = Visibility.Collapsed;
         SetTabHighlight(TabLogBtn);
     }
 
     private void TabChat_Click(object sender, RoutedEventArgs e)
     {
-        LogList.Visibility        = Visibility.Collapsed;
-        ChatList.Visibility       = Visibility.Visible;
+        LogList.Visibility          = Visibility.Collapsed;
+        ChatList.Visibility         = Visibility.Visible;
         ScreenSharePanel.Visibility = Visibility.Collapsed;
-        ChatInputArea.Visibility  = Visibility.Visible;
+        ChatInputArea.Visibility    = Visibility.Visible;
         SetTabHighlight(TabChatBtn);
         ChatInput.Focus();
     }
 
     private void TabScreen_Click(object sender, RoutedEventArgs e)
     {
-        LogList.Visibility        = Visibility.Collapsed;
-        ChatList.Visibility       = Visibility.Collapsed;
+        LogList.Visibility          = Visibility.Collapsed;
+        ChatList.Visibility         = Visibility.Collapsed;
         ScreenSharePanel.Visibility = Visibility.Visible;
-        ChatInputArea.Visibility  = Visibility.Collapsed;
+        ChatInputArea.Visibility    = Visibility.Collapsed;
         SetTabHighlight(TabScreenBtn);
     }
 
     private void SetTabHighlight(System.Windows.Controls.Button active)
     {
-        var on  = new SolidColorBrush(Color.FromRgb(0x43, 0x61, 0xEE));
-        var off = new SolidColorBrush(Colors.Transparent);
+        var on    = new SolidColorBrush(Color.FromRgb(0x43, 0x61, 0xEE));
+        var off   = new SolidColorBrush(Colors.Transparent);
         var white = new SolidColorBrush(Colors.White);
         var dim   = new SolidColorBrush(Color.FromRgb(0xB9, 0xBB, 0xBE));
 
@@ -871,11 +729,9 @@ public partial class TestWindow : Window
 
     private void RefreshMemberList()
     {
-        // ‪ = LTR Embedding, ‬ = Pop — prevents Vazir RTL font from showing dots as slashes
         var members  = _room.GetMembers().OrderBy(m => m.Username).ToList();
-        var newItems = members.Select(m => $"{m.Username}  •  ‪{m.VirtualIP}‬").ToList();
+        var newItems = members.Select(m => m.Username).ToList();
 
-        // Skip rebuild if nothing changed — prevents animation flicker on every timer tick
         if (MemberList.Items.Count == newItems.Count &&
             newItems.Select((t, i) => (string)MemberList.Items[i] == t).All(x => x))
             return;
@@ -887,23 +743,10 @@ public partial class TestWindow : Window
         DbgPeers.Text = (members.Count - (_room.IsHost ? 1 : 0)).ToString();
     }
 
-    private void UpdateP2PDebug()
-    {
-        var s = _p2p.NatStatus;
-        DbgLocalIP.Text   = s.LocalIP   ?? "—";
-        DbgPublicIP.Text  = s.PublicIP  ?? "—";
-        DbgLocalPort.Text = s.LocalPort?.ToString() ?? "—";
-        DbgExtPort.Text   = s.ExternalPort?.ToString() ?? "—";
-        DbgNatType.Text   = s.NatType;
-    }
-
     private void ResetDebug()
     {
-        DbgLocalIP.Text = DbgPublicIP.Text = DbgLocalPort.Text =
-        DbgExtPort.Text = DbgNatType.Text  = DbgRole.Text = "—";
-        DbgPeers.Text         = "0";
-        DbgVirtualIP.Text     = "—";
-        DbgVLanStatus.Text    = "غیرفعال";
+        DbgRole.Text             = "—";
+        DbgPeers.Text            = "0";
         DbgEncryption.Text       = "🔓 بدون رمز";
         DbgEncryption.Foreground = new SolidColorBrush(Color.FromRgb(0xFA, 0xA6, 0x1A));
     }
@@ -924,7 +767,7 @@ public partial class TestWindow : Window
             var sb = new Storyboard { RepeatBehavior = RepeatBehavior.Forever };
             var anim = new DoubleAnimation(1.0, 1.35, new Duration(TimeSpan.FromSeconds(0.7)))
             {
-                AutoReverse = true,
+                AutoReverse    = true,
                 EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
             };
             Storyboard.SetTarget(anim, StatusEllipse);
@@ -1007,10 +850,10 @@ public partial class TestWindow : Window
     private void PlayAudio(byte[] packet)
     {
         if (packet.Length < 10) return;
-        int  sampleRate    = BitConverter.ToInt32(packet, 0);
-        int  channels      = BitConverter.ToInt16(packet, 4);
-        int  bitsPerSample = BitConverter.ToInt16(packet, 6);
-        int  encoding      = BitConverter.ToInt16(packet, 8);
+        int sampleRate    = BitConverter.ToInt32(packet, 0);
+        int channels      = BitConverter.ToInt16(packet, 4);
+        int bitsPerSample = BitConverter.ToInt16(packet, 6);
+        int encoding      = BitConverter.ToInt16(packet, 8);
 
         var fmt = encoding == 3
             ? WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels)

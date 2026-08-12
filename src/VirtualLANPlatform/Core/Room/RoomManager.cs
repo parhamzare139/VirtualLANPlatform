@@ -1,121 +1,60 @@
 using System.Collections.Concurrent;
-using System.IO;
 using System.Text;
 using System.Text.Json;
 using VirtualLANPlatform.Core.Networking;
 using VirtualLANPlatform.Core.Protocol;
 using VirtualLANPlatform.Core.Storage;
-using VirtualLANPlatform.Core.VirtualNetwork;
 using LiteNetLib;
 
 namespace VirtualLANPlatform.Core.Room;
 
-/// <summary>
-/// Orchestrates the full Room lifecycle:
-///   Host: create room → listen → assign VIPs → sync members
-///   Guest: join room → receive VIP → start virtual network
-///
-/// Sits above P2PManager and VirtualNetworkManager.
-/// </summary>
 public sealed class RoomManager : IDisposable
 {
-    public const string  HostVIP    = "10.77.0.1";
-    private const string SubnetMask = "255.255.0.0";
+    private readonly P2PManager     _p2p;
+    private readonly DatabaseManager _db;
+    private readonly RoomRepository  _repo;
 
-    private static readonly string AssignmentsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "VirtualLANPlatform", "ip_assignments.json");
-
-    // ── Dependencies ──────────────────────────────────────────────────────────
-
-    private readonly P2PManager           _p2p;
-    private readonly VirtualNetworkManager _vnet;
-    private readonly DatabaseManager      _db;
-    private readonly RoomRepository       _repo;
-
-    // ── Room state ────────────────────────────────────────────────────────────
-
-    public string?  RoomId    { get; private set; }
-    public bool     IsHost    { get; private set; }
-    public bool     IsActive  { get; private set; }
-    public string?  MyVIP     { get; private set; }
+    public string?  RoomId     { get; private set; }
+    public bool     IsHost     { get; private set; }
+    public bool     IsActive   { get; private set; }
     public string?  MyUsername { get; private set; }
 
     private readonly ConcurrentDictionary<int, MemberRecord> _members = new();
-    private int _nextGuestOctet = 2; // 10.77.0.2, 10.77.0.3, …
-
-    // Persists username→octet mapping so returning guests keep the same virtual IP
-    private readonly Dictionary<string, byte> _assignments;
-
-    // ── Events ────────────────────────────────────────────────────────────────
-
-    public event Action<string>?         StatusChanged;
-    public event Action<MemberRecord>?  MemberJoined;
-    public event Action<MemberRecord>?  MemberLeft;
-    public event Action<string, string>? ConnectionFailed;
-    public event Action<string>?        RoomClosed;        // fires on Guest when Host closes room
-    public event Action<string>?        VipAssigned;       // fires when MyVIP is ready (Host + Guest)
-    public event Action<string>?         ScreenShareStarted;       // username of sharer
-    public event Action<string>?         ScreenShareStopped;       // username of sharer
-    public event Action<string, byte[]>? ScreenShareFrame;         // username, jpeg bytes
-    public event Action<byte[]>?         ScreenShareAudioReceived; // raw audio packet
-
     private bool _disposed;
 
-    // ── Constructor ───────────────────────────────────────────────────────────
+    public event Action<string>?         StatusChanged;
+    public event Action<MemberRecord>?   MemberJoined;
+    public event Action<MemberRecord>?   MemberLeft;
+    public event Action<string, string>? ConnectionFailed;
+    public event Action<string>?         RoomClosed;
+    public event Action<string>?         ScreenShareStarted;
+    public event Action<string>?         ScreenShareStopped;
+    public event Action<string, byte[]>? ScreenShareFrame;
+    public event Action<byte[]>?         ScreenShareAudioReceived;
 
-    public RoomManager(P2PManager p2p, VirtualNetworkManager vnet, DatabaseManager db)
+    public RoomManager(P2PManager p2p, DatabaseManager db)
     {
         _p2p  = p2p;
-        _vnet = vnet;
         _db   = db;
         _repo = new RoomRepository(db);
-
-        _assignments = LoadAssignments();
 
         _p2p.ValidateGuest    =  ValidateIncoming;
         _p2p.PeerConnected    += OnPeerConnected;
         _p2p.PeerDisconnected += OnPeerDisconnected;
         _p2p.MessageReceived  += OnMessageReceived;
         _p2p.ConnectionFailed += (t, m) => ConnectionFailed?.Invoke(t, m);
-
-        _vnet.StatusChanged += msg => StatusChanged?.Invoke(msg);
     }
 
-    // Returns null to accept, error string to reject
-    private string? ValidateIncoming(string username, System.Net.IPEndPoint endpoint)
+    private string? ValidateIncoming(string username, System.Net.IPEndPoint _)
     {
         if (_members.Values.Any(m => m.Username == username))
-            return $"نام کاربری «{username}» قبلاً در این Room استفاده می‌شود — لطفاً نام دیگری انتخاب کنید";
+            return $"نام کاربری «{username}» قبلاً در این Room استفاده می‌شود";
         return null;
-    }
-
-    private static Dictionary<string, byte> LoadAssignments()
-    {
-        try
-        {
-            if (File.Exists(AssignmentsPath))
-                return JsonSerializer.Deserialize<Dictionary<string, byte>>(
-                    File.ReadAllText(AssignmentsPath)) ?? [];
-        }
-        catch { }
-        return [];
-    }
-
-    private void SaveAssignments()
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(AssignmentsPath)!);
-            File.WriteAllText(AssignmentsPath, JsonSerializer.Serialize(_assignments));
-        }
-        catch { }
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /// <summary>Creates a Room as Host. Returns LAN code and Internet code.</summary>
-    public async Task<(bool Ok, string LanCode, string InternetCode)> CreateRoomAsync(
+    public async Task<(bool Ok, string LocalIP, ushort Port)> CreateRoomAsync(
         string username, ushort port = 42777, CancellationToken ct = default)
     {
         MyUsername = username;
@@ -123,128 +62,45 @@ public sealed class RoomManager : IDisposable
 
         StatusChanged?.Invoke("در حال راه‌اندازی Room...");
 
-        var (ok, lanCode, internetCode) = await _p2p.StartAsHostAsync(username, port, ct);
-        if (!ok) return (false, "", "");
+        var (ok, localIp, boundPort) = await _p2p.StartAsHostAsync(username, port, ct);
+        if (!ok) return (false, "", 0);
 
-        MyVIP = HostVIP;
-        VipAssigned?.Invoke(HostVIP);
+        RoomId   = GenerateRoomId();
+        IsActive = true;
 
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _vnet.StartAsync(_p2p, isHost: true, ct: ct);
-                StatusChanged?.Invoke($"VNet فعال — IP: {HostVIP}");
-            }
-            catch (Exception ex)
-            {
-                StatusChanged?.Invoke($"خطا در VNet: {ex.Message}");
-            }
-        }, ct);
-
-        RoomId = GenerateRoomId();
         _repo.SaveRoom(RoomId, username, port);
 
-        var hostMember = new MemberRecord(-1, username, HostVIP, DateTime.UtcNow);
+        var hostMember = new MemberRecord(-1, username, DateTime.UtcNow);
         _members[-1] = hostMember;
-        _repo.RecordJoin(RoomId, hostMember);
+        _repo.RecordJoin(RoomId, username);
 
-        IsActive = true;
-        StatusChanged?.Invoke($"Room فعال");
-        return (true, lanCode, internetCode);
+        MemberJoined?.Invoke(hostMember);
+        StatusChanged?.Invoke("Room فعال — منتظر اتصال");
+        return (true, localIp, boundPort);
     }
 
-    /// <summary>Joins an existing Room as Guest.</summary>
     public async Task<bool> JoinRoomAsync(
-        string code, string username, CancellationToken ct = default)
+        string hostIp, ushort hostPort, string username, CancellationToken ct = default)
     {
         MyUsername = username;
         IsHost     = false;
 
         StatusChanged?.Invoke("در حال اتصال...");
 
-        bool ok = await _p2p.ConnectAsGuestAsync(code, username, ct);
+        bool ok = await _p2p.ConnectAsGuestAsync(hostIp, hostPort, username, ct);
         if (!ok) return false;
 
-        // VirtualNetwork is started after receiving HandshakeResponse from Host
         IsActive = true;
         return true;
     }
 
-    /// <summary>Returns a snapshot of the current member list.</summary>
-    public IReadOnlyList<MemberRecord> GetMembers()
-        => _members.Values.ToList();
+    public IReadOnlyList<MemberRecord> GetMembers() => _members.Values.ToList();
 
-    // ── Host: peer connected ──────────────────────────────────────────────────
-
-    private void OnPeerConnected(PeerInfo peer)
-    {
-        if (!IsHost) return;
-
-        // Reuse saved octet for returning guest; skip occupied slots; save new assignments
-        byte octet;
-        if (_assignments.TryGetValue(peer.Username, out byte saved) &&
-            !_members.Values.Any(m => m.VirtualIP == $"10.77.0.{saved}"))
-        {
-            octet = saved;
-            if (octet >= _nextGuestOctet) _nextGuestOctet = octet + 1;
-        }
-        else
-        {
-            octet = (byte)_nextGuestOctet++;
-            while (_members.Values.Any(m => m.VirtualIP == $"10.77.0.{octet}"))
-                octet = (byte)_nextGuestOctet++;
-        }
-        _assignments[peer.Username] = octet;
-        SaveAssignments();
-
-        string guestVIP = $"10.77.0.{octet}";
-
-        var member = new MemberRecord(peer.Id, peer.Username, guestVIP, DateTime.UtcNow);
-        _members[peer.Id] = member;
-
-        if (RoomId != null) _repo.RecordJoin(RoomId, member);
-
-        // Register route so VirtualNetworkManager can forward packets to this guest
-        _vnet.AddRoute(peer.Id, guestVIP);
-
-        // Send Handshake response to the new guest
-        SendHandshakeResponse(peer.Id, guestVIP);
-
-        // Broadcast updated member list to all (including new peer)
-        BroadcastMemberSync("join", peer.Username);
-
-        MemberJoined?.Invoke(member);
-        StatusChanged?.Invoke($"متصل — {_members.Count} عضو");
-    }
-
-    // ── Host: peer disconnected ───────────────────────────────────────────────
-
-    private void OnPeerDisconnected(int peerId, string reason)
-    {
-        _vnet.RemoveRoute(peerId);
-
-        if (_members.TryRemove(peerId, out var member))
-        {
-            var left = member with { LeftAt = DateTime.UtcNow };
-            if (RoomId != null) _repo.RecordLeave(RoomId, member.VirtualIP);
-
-            if (IsHost) BroadcastMemberSync("leave", member.Username);
-
-            MemberLeft?.Invoke(left);
-            StatusChanged?.Invoke($"متصل — {_members.Count} عضو");
-        }
-    }
-
-    // ── Guest: receive Handshake ──────────────────────────────────────────────
-
-    // ── Screen Share public API ───────────────────────────────────────────────
+    // ── Screen Share ──────────────────────────────────────────────────────────
 
     public void BroadcastScreenShareStart()
-    {
-        var payload = Encoding.UTF8.GetBytes(MyUsername ?? "");
-        _p2p.SendToAll(MessageType.ScreenShareStart, payload, DeliveryMethod.ReliableOrdered);
-    }
+        => _p2p.SendToAll(MessageType.ScreenShareStart,
+               Encoding.UTF8.GetBytes(MyUsername ?? ""), DeliveryMethod.ReliableOrdered);
 
     public void BroadcastScreenShareFrame(byte[] jpegBytes)
         => _p2p.SendToAll(MessageType.ScreenShareFrame, jpegBytes, DeliveryMethod.ReliableUnordered);
@@ -254,6 +110,38 @@ public sealed class RoomManager : IDisposable
 
     public void BroadcastScreenShareAudio(byte[] packet)
         => _p2p.SendToAll(MessageType.ScreenShareAudio, packet, DeliveryMethod.Unreliable);
+
+    // ── Peer events ───────────────────────────────────────────────────────────
+
+    private void OnPeerConnected(PeerInfo peer)
+    {
+        var member = new MemberRecord(peer.Id, peer.Username, DateTime.UtcNow);
+        _members[peer.Id] = member;
+
+        if (RoomId != null) _repo.RecordJoin(RoomId, peer.Username);
+
+        if (IsHost)
+        {
+            SendHandshakeResponse(peer.Id);
+            BroadcastMemberSync("join", peer.Username);
+        }
+
+        MemberJoined?.Invoke(member);
+        StatusChanged?.Invoke($"متصل — {_members.Count} عضو");
+    }
+
+    private void OnPeerDisconnected(int peerId, string reason)
+    {
+        if (_members.TryRemove(peerId, out var member))
+        {
+            if (RoomId != null) _repo.RecordLeave(RoomId, member.Username);
+            if (IsHost) BroadcastMemberSync("leave", member.Username);
+            MemberLeft?.Invoke(member with { LeftAt = DateTime.UtcNow });
+            StatusChanged?.Invoke(_members.Count > 0
+                ? $"متصل — {_members.Count} عضو"
+                : "قطع شده");
+        }
+    }
 
     // ── Message dispatch ──────────────────────────────────────────────────────
 
@@ -270,12 +158,15 @@ public sealed class RoomManager : IDisposable
                 break;
 
             case MessageType.Disconnect:
-                HandleDisconnectNotice(frame.Payload.ToArray());
+                if (Encoding.UTF8.GetString(frame.Payload.ToArray()) == "host_close" && !IsHost)
+                {
+                    IsActive = false;
+                    RoomClosed?.Invoke("میزبان Room را بست");
+                }
                 break;
 
             case MessageType.ScreenShareStart:
-                var sharer = Encoding.UTF8.GetString(frame.Payload.ToArray());
-                ScreenShareStarted?.Invoke(sharer);
+                ScreenShareStarted?.Invoke(Encoding.UTF8.GetString(frame.Payload.ToArray()));
                 break;
 
             case MessageType.ScreenShareFrame:
@@ -284,7 +175,7 @@ public sealed class RoomManager : IDisposable
                 break;
 
             case MessageType.ScreenShareStop:
-                string stopper = _members.TryGetValue(peerId, out var ms2) ? ms2.Username : "—";
+                string stopper = _members.TryGetValue(peerId, out var ms) ? ms.Username : "—";
                 ScreenShareStopped?.Invoke(stopper);
                 break;
 
@@ -300,35 +191,15 @@ public sealed class RoomManager : IDisposable
         if (hs == null) return;
 
         RoomId = hs.RoomId;
-        MyVIP  = hs.YourVIP;
-        VipAssigned?.Invoke(hs.YourVIP);
-
-        // Populate member list from Host's snapshot and notify UI for each member
         _members.Clear();
-        foreach (var m in hs.Members)
+        foreach (var dto in hs.Members)
         {
-            var record = new MemberRecord(-2, m.Username, m.VirtualIP, DateTime.UtcNow);
-            _members[m.Username.GetHashCode()] = record;
+            var record = new MemberRecord(-2, dto.Username, DateTime.UtcNow);
+            _members[dto.Username.GetHashCode()] = record;
             MemberJoined?.Invoke(record);
         }
 
-        StatusChanged?.Invoke($"عضو شدید — IP مجازی: {hs.YourVIP}");
-
-        // Start virtual network with the assigned IP
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                byte octet = byte.Parse(hs.YourVIP.Split('.')[3]);
-                await _vnet.StartAsync(_p2p, isHost: false, guestOctet: octet);
-                MyVIP = hs.YourVIP;
-                StatusChanged?.Invoke($"شبکه مجازی فعال — IP: {hs.YourVIP}");
-            }
-            catch (Exception ex)
-            {
-                StatusChanged?.Invoke($"خطا در شبکه مجازی: {ex.Message}");
-            }
-        });
+        StatusChanged?.Invoke($"عضو شدید — {_members.Count} عضو در Room");
     }
 
     private void HandleMemberSync(byte[] data)
@@ -337,28 +208,25 @@ public sealed class RoomManager : IDisposable
         if (sync == null) return;
 
         _members.Clear();
-        foreach (var m in sync.Members)
-            _members[m.Username.GetHashCode()] =
-                new MemberRecord(-2, m.Username, m.VirtualIP, DateTime.UtcNow);
+        foreach (var dto in sync.Members)
+            _members[dto.Username.GetHashCode()] =
+                new MemberRecord(-2, dto.Username, DateTime.UtcNow);
 
-        if (sync.Event == "join")
-            MemberJoined?.Invoke(new MemberRecord(-2, sync.Username, "", DateTime.UtcNow));
-        else
-            MemberLeft?.Invoke(new MemberRecord(-2, sync.Username, "", DateTime.UtcNow));
+        var evtMember = new MemberRecord(-2, sync.Username, DateTime.UtcNow);
+        if (sync.Event == "join") MemberJoined?.Invoke(evtMember);
+        else                      MemberLeft?.Invoke(evtMember);
 
         StatusChanged?.Invoke($"متصل — {_members.Count} عضو");
     }
 
-    // ── Handshake / Sync helpers ──────────────────────────────────────────────
-
-    private void SendHandshakeResponse(int peerId, string guestVIP)
+    private void SendHandshakeResponse(int peerId)
     {
         var hs = new HandshakePayload
         {
             RoomId  = RoomId ?? "",
-            YourVIP = guestVIP,
-            HostVIP = HostVIP,
-            Members = BuildMemberDtos()
+            Members = _members.Values
+                .Select(m => new MemberDto { Username = m.Username })
+                .ToArray()
         };
         _p2p.SendToPeer(peerId, MessageType.Handshake, hs.Serialize(),
             DeliveryMethod.ReliableOrdered);
@@ -370,49 +238,29 @@ public sealed class RoomManager : IDisposable
         {
             Event    = evt,
             Username = username,
-            Members  = BuildMemberDtos()
+            Members  = _members.Values
+                .Select(m => new MemberDto { Username = m.Username })
+                .ToArray()
         };
-        _p2p.SendToAll(MessageType.MemberSync, sync.Serialize(),
-            DeliveryMethod.ReliableOrdered);
-    }
-
-    private MemberDto[] BuildMemberDtos()
-        => _members.Values
-            .Select(m => new MemberDto { Username = m.Username, VirtualIP = m.VirtualIP })
-            .ToArray();
-
-    // ── Disconnect notice ─────────────────────────────────────────────────────
-
-    private void HandleDisconnectNotice(byte[] data)
-    {
-        string reason = Encoding.UTF8.GetString(data);
-        if (reason == "host_close" && !IsHost)
-        {
-            IsActive = false; // prevent PeerDisconnected from overriding UI status
-            RoomClosed?.Invoke("میزبان Room را بست");
-        }
+        _p2p.SendToAll(MessageType.MemberSync, sync.Serialize(), DeliveryMethod.ReliableOrdered);
     }
 
     // ── Shutdown ──────────────────────────────────────────────────────────────
 
-    /// <summary>Host closes the room, notifies all guests, then disconnects.</summary>
     public async Task CloseRoomAsync()
     {
         if (!IsActive) return;
         _p2p.SendToAll(MessageType.Disconnect,
-            Encoding.UTF8.GetBytes("host_close"),
-            DeliveryMethod.ReliableOrdered);
-        await Task.Delay(150); // let the message reach guests
+            Encoding.UTF8.GetBytes("host_close"), DeliveryMethod.ReliableOrdered);
+        await Task.Delay(150);
         Shutdown();
     }
 
-    /// <summary>Guest voluntarily leaves the room.</summary>
     public async Task LeaveRoomAsync()
     {
         if (!IsActive) return;
         _p2p.SendToAll(MessageType.Disconnect,
-            Encoding.UTF8.GetBytes("guest_leave"),
-            DeliveryMethod.ReliableOrdered);
+            Encoding.UTF8.GetBytes("guest_leave"), DeliveryMethod.ReliableOrdered);
         await Task.Delay(50);
         Shutdown();
     }
@@ -420,28 +268,21 @@ public sealed class RoomManager : IDisposable
     public void Shutdown()
     {
         IsActive = false;
-        _vnet.Stop();
         _p2p.Shutdown();
         _members.Clear();
-        MyVIP = null;
     }
 
     private static string GenerateRoomId()
         => Guid.NewGuid().ToString("N")[..8].ToUpper();
 
-    // ── Dispose ───────────────────────────────────────────────────────────────
-
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-
         _p2p.PeerConnected    -= OnPeerConnected;
         _p2p.PeerDisconnected -= OnPeerDisconnected;
         _p2p.MessageReceived  -= OnMessageReceived;
-
         Shutdown();
-        _vnet.Dispose();
         _p2p.Dispose();
         _db.Dispose();
     }

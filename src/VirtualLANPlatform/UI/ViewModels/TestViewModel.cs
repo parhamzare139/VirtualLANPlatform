@@ -66,22 +66,14 @@ public class TestViewModel : INotifyPropertyChanged, IDisposable
 
     // Debug info
     private string _debugLocalIP   = "—";
-    private string _debugPublicIP  = "—";
-    private string _debugLocalPort = "—";
-    private string _debugExtPort   = "—";
-    private string _debugNatType   = "—";
     private string _debugPeerCount = "0";
     private string _debugRole      = "—";
 
     public string DebugLocalIP   { get => _debugLocalIP;   set { _debugLocalIP   = value; OnPropertyChanged(); } }
-    public string DebugPublicIP  { get => _debugPublicIP;  set { _debugPublicIP  = value; OnPropertyChanged(); } }
-    public string DebugLocalPort { get => _debugLocalPort; set { _debugLocalPort = value; OnPropertyChanged(); } }
-    public string DebugExtPort   { get => _debugExtPort;   set { _debugExtPort   = value; OnPropertyChanged(); } }
-    public string DebugNatType   { get => _debugNatType;   set { _debugNatType   = value; OnPropertyChanged(); } }
     public string DebugPeerCount { get => _debugPeerCount; set { _debugPeerCount = value; OnPropertyChanged(); } }
     public string DebugRole      { get => _debugRole;      set { _debugRole      = value; OnPropertyChanged(); } }
 
-    public ObservableCollection<string> Members { get; } = [];
+    public ObservableCollection<string> Members    { get; } = [];
     public ObservableCollection<string> LogEntries { get; } = [];
 
     // ── Constructor ───────────────────────────────────────────────────────────
@@ -121,15 +113,14 @@ public class TestViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
-            var (ok, lanCode, internetCode) = await _p2p.StartAsHostAsync(Username, port: 42777);
+            var (ok, localIp, port) = await _p2p.StartAsHostAsync(Username, port: 42777);
             if (ok)
             {
-                ConnectionCode = string.IsNullOrEmpty(internetCode) ? lanCode : $"{lanCode} / {internetCode}";
-                DebugRole = "Host";
-                UpdateDebugFromNat();
+                ConnectionCode = $"{localIp}:{port}";
+                DebugLocalIP   = localIp;
+                DebugRole      = "Host";
                 SetStatus("Host — منتظر اتصال", "#43B581");
-                AddLog($"LAN Code: {lanCode}");
-                if (!string.IsNullOrEmpty(internetCode)) AddLog($"Internet Code: {internetCode}");
+                AddLog($"IP:Port: {ConnectionCode}");
             }
         }
         finally { IsBusy = false; }
@@ -138,17 +129,28 @@ public class TestViewModel : INotifyPropertyChanged, IDisposable
     public async Task JoinRoomAsync()
     {
         if (IsBusy || string.IsNullOrWhiteSpace(JoinCode)) return;
+
+        string input     = JoinCode.Trim();
+        int    colonIdx  = input.LastIndexOf(':');
+        if (colonIdx < 0 || !ushort.TryParse(input[(colonIdx + 1)..], out ushort hostPort))
+        {
+            MessageBox.Show("فرمت نادرست — مثال: 10.10.1.5:42777", "خطا",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        string hostIp = input[..colonIdx];
+
         IsBusy = true;
         SetStatus("در حال اتصال...", "#FAA61A");
-        AddLog($"تلاش اتصال با Code: {JoinCode}");
+        AddLog($"تلاش اتصال به: {input}");
 
         try
         {
-            bool ok = await _p2p.ConnectAsGuestAsync(JoinCode.Trim(), Username);
+            bool ok = await _p2p.ConnectAsGuestAsync(hostIp, hostPort, Username);
             if (ok)
             {
                 IsConnected = true;
-                DebugRole = "Guest";
+                DebugRole   = "Guest";
                 SetStatus("متصل", "#43B581");
                 AddLog("اتصال موفق!");
             }
@@ -159,7 +161,7 @@ public class TestViewModel : INotifyPropertyChanged, IDisposable
     public void Disconnect()
     {
         _p2p.Shutdown();
-        IsConnected = false;
+        IsConnected    = false;
         ConnectionCode = "";
         Members.Clear();
         SetStatus("قطع شده", "#747F8D");
@@ -175,21 +177,11 @@ public class TestViewModel : INotifyPropertyChanged, IDisposable
         AddLog(msg);
     });
 
-    private void UpdateDebugFromNat()
-    {
-        var s = _p2p.NatStatus;
-        DebugLocalIP   = s.LocalIP   ?? "—";
-        DebugPublicIP  = s.PublicIP  ?? "—";
-        DebugLocalPort = s.LocalPort?.ToString() ?? "—";
-        DebugExtPort   = s.ExternalPort?.ToString() ?? "—";
-        DebugNatType   = s.NatType;
-    }
-
     private void ResetDebug()
     {
-        DebugLocalIP = DebugPublicIP = DebugLocalPort = DebugExtPort = DebugNatType = "—";
+        DebugLocalIP   = "—";
         DebugPeerCount = "0";
-        DebugRole = "—";
+        DebugRole      = "—";
     }
 
     private void SetStatus(string text, string color)

@@ -48,7 +48,6 @@ public sealed class DatabaseManager : IDisposable
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 room_id      TEXT    NOT NULL,
                 username     TEXT    NOT NULL,
-                virtual_ip   TEXT    NOT NULL,
                 joined_at    INTEGER NOT NULL,
                 left_at      INTEGER,
                 FOREIGN KEY (room_id) REFERENCES rooms(id)

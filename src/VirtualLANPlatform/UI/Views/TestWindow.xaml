@@ -466,14 +466,13 @@
                             Click="SaveUsername_Click"/>
                 </StackPanel>
 
-                <!-- Room actions: code + IP + leave -->
+                <!-- Room header: IP:Port to share with guests + leave -->
                 <StackPanel x:Name="RoomHeaderPanel" Grid.Column="2"
                             Orientation="Horizontal" Visibility="Collapsed"
                             VerticalAlignment="Center">
 
-                    <!-- LAN code -->
-                    <TextBlock Text="LAN:" Foreground="#80848E" FontSize="11"
-                               FontFamily="Inter"
+                    <TextBlock Text="اشتراک IP:" Foreground="#80848E" FontSize="11"
+                               FontFamily="Vazir"
                                VerticalAlignment="Center" Margin="0,0,7,0"/>
                     <Border Background="#1E2025" CornerRadius="6"
                             Padding="11,5" Margin="0,0,5,0">
@@ -485,45 +484,8 @@
                     <Button x:Name="CopyCodeBtn" Content="کپی"
                             Style="{StaticResource GhostBtn}"
                             FontFamily="Vazir"
-                            IsEnabled="False" Margin="0,0,8,0"
+                            IsEnabled="False" Margin="0,0,12,0"
                             Click="CopyCode_Click"/>
-
-                    <Rectangle Width="1" Height="18" Fill="#3A3D44" Margin="0,0,8,0"/>
-
-                    <!-- Internet code (STUN-discovered) -->
-                    <TextBlock Text="اینترنت:" Foreground="#80848E" FontSize="11"
-                               FontFamily="Vazir"
-                               VerticalAlignment="Center" Margin="0,0,7,0"/>
-                    <Border Background="#1E2025" CornerRadius="6"
-                            Padding="11,5" Margin="0,0,5,0">
-                        <TextBlock x:Name="InternetCodeDisplay" Text="—"
-                                   Foreground="#FAA61A" FontFamily="Consolas"
-                                   FontSize="13" FontWeight="Bold"
-                                   FlowDirection="LeftToRight"/>
-                    </Border>
-                    <Button x:Name="CopyInternetCodeBtn" Content="کپی"
-                            Style="{StaticResource GhostBtn}"
-                            FontFamily="Vazir"
-                            IsEnabled="False" Margin="0,0,8,0"
-                            Click="CopyInternetCode_Click"/>
-
-                    <Rectangle Width="1" Height="18" Fill="#3A3D44" Margin="0,0,12,0"/>
-
-                    <TextBlock Text="IP بازی:" Foreground="#80848E" FontSize="11"
-                               FontFamily="Vazir"
-                               VerticalAlignment="Center" Margin="0,0,7,0"/>
-                    <Border Background="#1E2025" CornerRadius="6"
-                            Padding="11,5" Margin="0,0,5,0">
-                        <TextBlock x:Name="HostVipDisplay" Text="10.77.0.1"
-                                   Foreground="#57F287" FontFamily="Consolas"
-                                   FontSize="13" FontWeight="Bold"
-                                   FlowDirection="LeftToRight"/>
-                    </Border>
-                    <Button x:Name="CopyHostVipBtn" Content="کپی IP"
-                            Style="{StaticResource GhostBtn}"
-                            FontFamily="Vazir"
-                            Margin="0,0,12,0"
-                            Click="CopyHostVip_Click"/>
 
                     <Rectangle Width="1" Height="18" Fill="#3A3D44" Margin="0,0,12,0"/>
 
@@ -621,7 +583,7 @@
                                                    Margin="0,3,0,0"/>
                                     </StackPanel>
                                 </StackPanel>
-                                <TextBlock Text="یک Room جدید بسازید و کد را با دوستانتان به اشتراک بگذارید."
+                                <TextBlock Text="یک Room بسازید. IP پکت رفت خود را با مهمانان به اشتراک بگذارید."
                                            Foreground="#80848E" FontSize="12.5"
                                            FontFamily="Vazir"
                                            TextWrapping="Wrap" Margin="0,0,0,16"/>
@@ -671,7 +633,7 @@
                                                    Margin="0,3,0,0"/>
                                     </StackPanel>
                                 </StackPanel>
-                                <TextBlock Text="کد دریافتی از هاست را وارد کنید."
+                                <TextBlock Text="IP و پورت هاست را وارد کنید (مثال: 10.10.1.5:42777)"
                                            Foreground="#80848E" FontSize="12.5"
                                            FontFamily="Vazir"
                                            TextWrapping="Wrap" Margin="0,0,0,12"/>
@@ -708,45 +670,6 @@
                                     </Button>
                                 </Grid>
 
-                                <!-- NAT Punch section — shown when direct connection fails -->
-                                <Border x:Name="NatPunchSection"
-                                        Visibility="Collapsed"
-                                        Background="#1A1D23" CornerRadius="8"
-                                        BorderBrush="#FAA61A" BorderThickness="1"
-                                        Padding="12,10" Margin="0,10,0,0">
-                                    <StackPanel>
-                                        <TextBlock Text="⚠ اتصال مستقیم ناموفق — NAT Punch را امتحان کنید"
-                                                   Foreground="#FAA61A" FontSize="11"
-                                                   FontFamily="Vazir" FontWeight="SemiBold"
-                                                   Margin="0,0,0,7"/>
-                                        <TextBlock Text="کد خود را به هاست بدهید:"
-                                                   Foreground="#80848E" FontSize="11"
-                                                   FontFamily="Vazir" Margin="0,0,0,5"/>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="6"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBox x:Name="MyExternalCodeBox"
-                                                     IsReadOnly="True"
-                                                     Style="{StaticResource Inp}"
-                                                     FlowDirection="LeftToRight"
-                                                     FontFamily="Consolas" FontSize="11"
-                                                     Height="30"/>
-                                            <Button Grid.Column="2"
-                                                    Content="کپی"
-                                                    Style="{StaticResource GhostBtn}"
-                                                    FontFamily="Vazir"
-                                                    Height="30" Padding="10,0"
-                                                    Click="CopyMyCode_Click"/>
-                                        </Grid>
-                                        <TextBlock Foreground="#4E5058" FontSize="10"
-                                                   FontFamily="Vazir" Margin="0,5,0,0"
-                                                   TextWrapping="Wrap"
-                                                   Text="هاست باید این کد را در بخش «اتصال متقابل» وارد کند"/>
-                                    </StackPanel>
-                                </Border>
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -1028,17 +951,6 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="IP مجازی" Style="{StaticResource Lbl}" FontFamily="Vazir"/>
-                            <TextBlock x:Name="DbgVirtualIP" Grid.Column="1" Text="—"
-                                       Foreground="#57F287" FontFamily="Consolas"
-                                       FontSize="12" FlowDirection="LeftToRight"/>
-                        </Grid>
-
-                        <Grid Margin="0,0,0,7">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
                             <TextBlock Text="تعداد Peer" Style="{StaticResource Lbl}" FontFamily="Vazir"/>
                             <TextBlock x:Name="DbgPeers" Grid.Column="1" Text="0"
                                        Style="{StaticResource Val}" FontFamily="Inter"/>
@@ -1056,50 +968,6 @@
                                        FlowDirection="LeftToRight"/>
                         </Grid>
 
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="WinTun" Style="{StaticResource Lbl}" FontFamily="Inter"/>
-                            <TextBlock x:Name="DbgWinTun" Grid.Column="1" Text="—"
-                                       Style="{StaticResource Val}" FontFamily="Inter"
-                                       FlowDirection="LeftToRight"/>
-                        </Grid>
-
-                        <!-- NAT Punch section (visible for Host when active) -->
-                        <Border x:Name="PunchSection" Visibility="Collapsed"
-                                Background="#1A1D23" CornerRadius="7"
-                                BorderBrush="#4361EE" BorderThickness="1"
-                                Padding="10,9" Margin="0,12,0,0">
-                            <StackPanel>
-                                <TextBlock Text="اتصال متقابل (NAT Punch)"
-                                           Foreground="#4361EE" FontSize="10"
-                                           FontFamily="Vazir" FontWeight="Bold"
-                                           Margin="0,0,0,7"/>
-                                <TextBlock Text="کد مهمان را وارد کنید:"
-                                           Foreground="#80848E" FontSize="10"
-                                           FontFamily="Vazir" Margin="0,0,0,4"/>
-                                <TextBox x:Name="GuestPunchCodeBox"
-                                         Style="{StaticResource Inp}"
-                                         FlowDirection="LeftToRight"
-                                         FontFamily="Consolas" FontSize="11"
-                                         Height="30" Margin="0,0,0,6"/>
-                                <Button Content="اتصال به مهمان"
-                                        Style="{StaticResource Btn}"
-                                        FontFamily="Vazir" FontSize="11"
-                                        Padding="0,6"
-                                        Click="PunchConnect_Click"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Hidden technical fields for code-behind -->
-                        <TextBlock x:Name="DbgLocalIP"    Visibility="Collapsed"/>
-                        <TextBlock x:Name="DbgPublicIP"   Visibility="Collapsed"/>
-                        <TextBlock x:Name="DbgLocalPort"  Visibility="Collapsed"/>
-                        <TextBlock x:Name="DbgExtPort"    Visibility="Collapsed"/>
-                        <TextBlock x:Name="DbgNatType"    Visibility="Collapsed"/>
-                        <TextBlock x:Name="DbgVLanStatus" Visibility="Collapsed"/>
                     </StackPanel>
                 </Border>
             </Grid>

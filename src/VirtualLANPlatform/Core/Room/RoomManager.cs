@@ -55,14 +55,14 @@ public sealed class RoomManager : IDisposable
     // ── Public API ────────────────────────────────────────────────────────────
 
     public async Task<(bool Ok, string LocalIP, ushort Port)> CreateRoomAsync(
-        string username, ushort port = 42777, CancellationToken ct = default)
+        string username, ushort port = 42777, string? localIp = null, CancellationToken ct = default)
     {
         MyUsername = username;
         IsHost     = true;
 
         StatusChanged?.Invoke("در حال راه‌اندازی Room...");
 
-        var (ok, localIp, boundPort) = await _p2p.StartAsHostAsync(username, port, ct);
+        var (ok, resolvedIp, boundPort) = await _p2p.StartAsHostAsync(username, port, localIp, ct);
         if (!ok) return (false, "", 0);
 
         RoomId   = GenerateRoomId();
@@ -76,7 +76,7 @@ public sealed class RoomManager : IDisposable
 
         MemberJoined?.Invoke(hostMember);
         StatusChanged?.Invoke("Room فعال — منتظر اتصال");
-        return (true, localIp, boundPort);
+        return (true, resolvedIp, boundPort);
     }
 
     public async Task<bool> JoinRoomAsync(

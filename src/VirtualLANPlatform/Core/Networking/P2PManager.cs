@@ -45,12 +45,16 @@ public sealed class P2PManager : INetEventListener, IDisposable
     // ── Host ──────────────────────────────────────────────────────────────────
 
     public Task<(bool Ok, string LocalIP, ushort Port)> StartAsHostAsync(
-        string username, ushort port, CancellationToken ct = default)
+        string username, ushort port, string? localIp = null, CancellationToken ct = default)
     {
         Role = PeerRole.Host;
         _net = BuildNetManager();
 
-        if (!_net.Start(port))
+        bool started = localIp != null && IPAddress.TryParse(localIp, out var bindIp)
+            ? _net.Start(bindIp.ToString(), "::1", port)
+            : _net.Start(port);
+
+        if (!started)
         {
             ConnectionFailed?.Invoke("Host شروع نشد", $"پورت {port} در دسترس نیست.");
             return Task.FromResult((false, "", (ushort)0));
@@ -59,7 +63,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
         IsRunning = true;
         StartPollLoop();
         StatusChanged?.Invoke("آماده — منتظر اتصال");
-        return Task.FromResult((true, GetLocalIP(), port));
+        return Task.FromResult((true, localIp ?? GetLocalIP(), port));
     }
 
     // ── Guest ─────────────────────────────────────────────────────────────────
@@ -300,7 +304,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
     private NetManager BuildNetManager() => new(this)
     {
         AutoRecycle                = true,
-        IPv6Enabled                = true,
+        IPv6Enabled                = false,
         UnconnectedMessagesEnabled = false,
         PingInterval               = 2000,
         DisconnectTimeout          = 30000

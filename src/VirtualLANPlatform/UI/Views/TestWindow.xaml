@@ -329,6 +329,92 @@
         <!-- ══════════════════════════════════════════
              PANEL STYLES
         ══════════════════════════════════════════ -->
+        <Style x:Key="CmbStyle" TargetType="ComboBox">
+            <Setter Property="Background"               Value="#2A2D35"/>
+            <Setter Property="Foreground"               Value="#DBDEE1"/>
+            <Setter Property="BorderBrush"              Value="#3A3D44"/>
+            <Setter Property="BorderThickness"          Value="1"/>
+            <Setter Property="FontSize"                 Value="13"/>
+            <Setter Property="FontFamily"               Value="Consolas"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Background"  Value="#2A2D35"/>
+                        <Setter Property="Foreground"  Value="#DBDEE1"/>
+                        <Setter Property="Padding"     Value="12,8"/>
+                        <Setter Property="FontFamily"  Value="Consolas"/>
+                        <Setter Property="FontSize"    Value="13"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter Property="Background" Value="#4361EE55"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <Border x:Name="Root"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="7">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="28"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ContentPresenter Grid.Column="0"
+                                        Content="{TemplateBinding SelectionBoxItem}"
+                                        ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                        Margin="10,0,0,0"
+                                        VerticalAlignment="Center"
+                                        HorizontalAlignment="Left"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="⌄"
+                                               Foreground="#80848E"
+                                               FontSize="11"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                            </Border>
+                            <ToggleButton Focusable="False" IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          Background="Transparent" BorderThickness="0" Opacity="0"/>
+                            <Popup x:Name="PART_Popup"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   PopupAnimation="Fade"
+                                   Placement="Bottom">
+                                <Border Background="#2A2D35"
+                                        BorderBrush="#3A3D44"
+                                        BorderThickness="1"
+                                        CornerRadius="7"
+                                        Margin="0,4,0,0"
+                                        MinWidth="{TemplateBinding ActualWidth}">
+                                    <ScrollViewer MaxHeight="200">
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#4361EE"/>
+                            </Trigger>
+                            <Trigger Property="IsDropDownOpen" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#4361EE"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background"   Value="#23262D"/>
             <Setter Property="CornerRadius" Value="10"/>
@@ -497,7 +583,7 @@
                             Click="CancelOp_Click"/>
                 </StackPanel>
 
-                <!-- Room header: just the leave button -->
+                <!-- Room header: leave button + host IP display -->
                 <StackPanel x:Name="RoomHeaderPanel" Grid.Column="2"
                             Orientation="Horizontal" Visibility="Collapsed"
                             VerticalAlignment="Center">
@@ -506,6 +592,26 @@
                             FontFamily="Vazir"
                             IsEnabled="False" Padding="12,6" FontSize="12"
                             Click="LeaveClose_Click"/>
+                    <!-- Host IP — only visible when user is Host -->
+                    <StackPanel x:Name="HostIpPanel" Orientation="Horizontal"
+                                Margin="16,0,0,0" Visibility="Collapsed">
+                        <TextBlock Text="IP شما:" Foreground="#80848E"
+                                   FontFamily="Vazir" FontSize="12"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <Border Background="#2A2D35" CornerRadius="6"
+                                Padding="10,4" Cursor="Hand"
+                                ToolTip="کلیک برای کپی"
+                                MouseLeftButtonUp="HostIpBorder_Click">
+                            <TextBlock x:Name="HostIpLabel"
+                                       FontFamily="Consolas" FontSize="13"
+                                       Foreground="#4361EE" FontWeight="Bold"
+                                       FlowDirection="LeftToRight"/>
+                        </Border>
+                        <TextBlock x:Name="IpCopiedLabel" Text="✓ کپی شد"
+                                   Foreground="#43B581" FontFamily="Vazir" FontSize="11"
+                                   VerticalAlignment="Center" Margin="8,0,0,0"
+                                   Opacity="0"/>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>
@@ -783,23 +889,49 @@
 
                     <!-- Settings card -->
                     <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,12,0,0">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBox Grid.Column="0" x:Name="PortBox" Text="42777"
-                                     Style="{StaticResource Inp}"
-                                     FlowDirection="LeftToRight"
-                                     FontFamily="Consolas" FontSize="14"
-                                     Width="80" Height="30" Padding="8,0"
-                                     LostFocus="PortBox_LostFocus"
-                                     KeyDown="PortBox_KeyDown"/>
-                            <TextBlock Grid.Column="1" Text="پورت اتصال"
-                                       Foreground="#80848E" FontSize="12"
-                                       FontFamily="Vazir" VerticalAlignment="Center"
-                                       Margin="0,0,60,0"/>
-                        </Grid>
+                        <StackPanel>
+                            <!-- Port row -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" x:Name="PortBox" Text="42777"
+                                         Style="{StaticResource Inp}"
+                                         FlowDirection="LeftToRight"
+                                         FontFamily="Consolas" FontSize="14"
+                                         Width="80" Height="30" Padding="8,0"
+                                         LostFocus="PortBox_LostFocus"
+                                         KeyDown="PortBox_KeyDown"/>
+                                <TextBlock Grid.Column="1" Text="پورت اتصال"
+                                           Foreground="#80848E" FontSize="12"
+                                           FontFamily="Vazir" VerticalAlignment="Center"
+                                           Margin="0,0,60,0"/>
+                            </Grid>
+                            <!-- Adapter row -->
+                            <Grid Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <ComboBox Grid.Column="0" x:Name="AdapterBox"
+                                          Style="{StaticResource CmbStyle}"
+                                          Height="34" MinWidth="200"
+                                          FlowDirection="LeftToRight"
+                                          Margin="0,0,14,0"
+                                          SelectionChanged="AdapterBox_SelectionChanged">
+                                    <ComboBox.Resources>
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}"     Color="#2A2D35"/>
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#DBDEE1"/>
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}"  Color="#4361EE"/>
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFFFFF"/>
+                                    </ComboBox.Resources>
+                                </ComboBox>
+                                <TextBlock Grid.Column="1" Text="آداپتور شبکه"
+                                           Foreground="#80848E" FontSize="12"
+                                           FontFamily="Vazir" VerticalAlignment="Center"/>
+                            </Grid>
+                        </StackPanel>
                     </Border>
                 </Grid>
 
@@ -991,11 +1123,14 @@
         ══════════════════════════════════════════ -->
         <Border x:Name="Footer" Grid.Row="2" Padding="16,6">
             <Grid>
-                <TextBlock Text="Virtual LAN Platform  v1.0.0"
-                           Foreground="#2E3035" FontSize="11"
+                <TextBlock Foreground="#2E3035" FontSize="11"
                            FontFamily="Inter"
                            HorizontalAlignment="Center"
-                           VerticalAlignment="Center"/>
+                           VerticalAlignment="Center">
+                    <Run Text="Virtual LAN Platform"/>
+                    <Run Text="  بتا  "/>
+                    <Run Text="v1.0.2"/>
+                </TextBlock>
                 <Button Content="بررسی بروزرسانی"
                         FontFamily="Vazir" FontSize="10"
                         Foreground="#4E5058" Background="Transparent"

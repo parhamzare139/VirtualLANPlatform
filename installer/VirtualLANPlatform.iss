@@ -1,5 +1,5 @@
 #define AppName      "Virtual LAN Platform"
-#define AppVersion   "1.2.1"
+#define AppVersion   "1.0.2-beta"
 #define AppPublisher "VirtualLAN"
 #define AppExeName   "VirtualLANPlatform.exe"
 #define SourceDir    "..\publish"
@@ -46,6 +46,8 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{commondesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Run]
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""VirtualLAN Platform"""; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""VirtualLAN Platform"" protocol=UDP dir=in localport=42777 action=allow"; Flags: runhidden
 Filename: "{app}\{#AppExeName}"; Description: "اجرای {#AppName}"; Flags: nowait postinstall skipifsilent shellexec
 
 [UninstallDelete]

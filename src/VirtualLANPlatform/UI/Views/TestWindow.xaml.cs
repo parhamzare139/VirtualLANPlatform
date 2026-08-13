@@ -48,6 +48,7 @@ public partial class TestWindow : Window
     private Storyboard?                 _dotPulse;
     private WaveOutEvent?               _audioOut;
     private BufferedWaveProvider?       _audioBuffer;
+    private ScreenShareWindow?          _screenShareWin;
 
     private static readonly string UsernamePath = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -56,6 +57,15 @@ public partial class TestWindow : Window
     private static readonly string PortPath = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "VirtualLANPlatform", "port.txt");
+
+    private static readonly string AdapterPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "VirtualLANPlatform", "adapter.txt");
+
+    private record AdapterItem(string Name, string IP)
+    {
+        public override string ToString() => $"{IP}  ({Name})";
+    }
 
     [DllImport("user32.dll")] private static extern bool MessageBeep(uint uType);
 
@@ -76,6 +86,7 @@ public partial class TestWindow : Window
         WireEvents();
         LoadSavedUsername();
         LoadSavedPort();
+        LoadAdapters();
         LoadWindowIcon();
     }
 
@@ -157,6 +168,50 @@ public partial class TestWindow : Window
         }
     }
 
+    // ── Adapter selection ─────────────────────────────────────────────────────
+
+    private void LoadAdapters()
+    {
+        AdapterBox.Items.Clear();
+        string? savedName = null;
+        try { if (System.IO.File.Exists(AdapterPath)) savedName = System.IO.File.ReadAllText(AdapterPath).Trim(); } catch { }
+
+        int selectIdx = 0;
+        var interfaces = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up
+                     && n.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
+            .ToList();
+
+        foreach (var iface in interfaces)
+        {
+            var ip = iface.GetIPProperties().UnicastAddresses
+                .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                ?.Address.ToString();
+            if (ip == null) continue;
+
+            var item = new AdapterItem(iface.Name, ip);
+            int idx = AdapterBox.Items.Add(item);
+            if (iface.Name == savedName) selectIdx = idx;
+        }
+
+        if (AdapterBox.Items.Count > 0)
+            AdapterBox.SelectedIndex = selectIdx;
+    }
+
+    private void AdapterBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (AdapterBox.SelectedItem is not AdapterItem item) return;
+        try
+        {
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(AdapterPath)!);
+            System.IO.File.WriteAllText(AdapterPath, item.Name);
+        }
+        catch { }
+    }
+
+    private string? GetSelectedAdapterIP()
+        => (AdapterBox.SelectedItem as AdapterItem)?.IP;
+
     // ── Tray icon ─────────────────────────────────────────────────────────────
 
     private void InitTrayIcon()
@@ -232,6 +287,16 @@ public partial class TestWindow : Window
         LeaveCloseBtn.Content   = isHost ? "بستن Room" : "خروج از Room";
         LeaveCloseBtn.IsEnabled = true;
 
+        if (isHost)
+        {
+            HostIpLabel.Text       = ipPort;
+            HostIpPanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            HostIpPanel.Visibility = Visibility.Collapsed;
+        }
+
         UsernameSection.Visibility = Visibility.Collapsed;
         VoiceStrip.Visibility      = Visibility.Visible;
         ChatPanel.Visibility       = Visibility.Visible;
@@ -269,8 +334,7 @@ public partial class TestWindow : Window
         }
         StopAudioPlayback();
         _remoteSharerUsername       = null;
-        ScreenSharePanel.Visibility = Visibility.Collapsed;
-        ScreenFrameImage.Source     = null;
+        _screenShareWin?.Close();
 
         MicBtn.Content        = "🎤 میکروفون";
         SpeakerBtn.Content    = "🔊 اسپیکر";
@@ -384,7 +448,15 @@ public partial class TestWindow : Window
         _screenShare.FrameCaptured += bytes =>
         {
             _room.BroadcastScreenShareFrame(bytes);
-            Dispatch(() => ShowScreenFrame(bytes));
+            Dispatch(() =>
+            {
+                if (_screenShareWin == null) return;
+                using var ms = new System.IO.MemoryStream(bytes);
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit(); bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bmp.StreamSource = ms; bmp.EndInit(); bmp.Freeze();
+                _screenShareWin.UpdateFrame(bmp);
+            });
         };
 
         _screenShare.AudioCaptured += (pcm, fmt) => SendAudio(pcm, fmt);
@@ -393,22 +465,27 @@ public partial class TestWindow : Window
 
         _room.ScreenShareStarted += username => Dispatch(() =>
         {
-            _remoteSharerUsername       = username;
-            ScreenSharerLabel.Text      = $"صفحه‌نمایش  {username}";
-            ScreenSharePanel.Visibility = Visibility.Visible;
-            ScreenShareBtn.IsEnabled    = false;
-            ShowScreenShare();
+            _remoteSharerUsername    = username;
+            ScreenShareBtn.IsEnabled = false;
+            OpenScreenShareWindow(username);
         });
 
-        _room.ScreenShareFrame += (_, bytes) => Dispatch(() => ShowScreenFrame(bytes));
+        _room.ScreenShareFrame += (_, bytes) => Dispatch(() =>
+        {
+            if (_screenShareWin == null) return;
+            using var ms = new System.IO.MemoryStream(bytes);
+            var bmp = new System.Windows.Media.Imaging.BitmapImage();
+            bmp.BeginInit(); bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bmp.StreamSource = ms; bmp.EndInit(); bmp.Freeze();
+            _screenShareWin.UpdateFrame(bmp);
+        });
 
         _room.ScreenShareStopped += username => Dispatch(() =>
         {
-            _remoteSharerUsername       = null;
-            ScreenSharePanel.Visibility = Visibility.Collapsed;
+            _remoteSharerUsername = null;
+            _screenShareWin?.SetStopped();
             StopAudioPlayback();
             if (_p2p.PeerCount > 0) ScreenShareBtn.IsEnabled = true;
-            ShowChat();
         });
 
         // ── Chat ──────────────────────────────────────────────────────────────
@@ -535,7 +612,7 @@ public partial class TestWindow : Window
 
         try
         {
-            var (ok, localIp, _) = await _room.CreateRoomAsync(username, port: GetPort(), ct: _opCts!.Token);
+            var (ok, localIp, _) = await _room.CreateRoomAsync(username, port: GetPort(), localIp: GetSelectedAdapterIP(), ct: _opCts!.Token);
             if (ok)
             {
                 DbgRole.Text = "Host";
@@ -629,6 +706,18 @@ public partial class TestWindow : Window
 
     private void NavSettings_Click(object sender, RoutedEventArgs e) { }
 
+    private async void HostIpBorder_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(HostIpLabel.Text);
+            IpCopiedLabel.Opacity = 1;
+            await Task.Delay(1800);
+            IpCopiedLabel.Opacity = 0;
+        }
+        catch { }
+    }
+
     private void NavDonate_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -706,15 +795,16 @@ public partial class TestWindow : Window
 
     private void ShowChat()
     {
-        ChatList.Visibility         = Visibility.Visible;
-        ScreenSharePanel.Visibility = Visibility.Collapsed;
+        ChatList.Visibility = Visibility.Visible;
         ChatInput.Focus();
     }
 
-    private void ShowScreenShare()
+    private void OpenScreenShareWindow(string sharerName)
     {
-        ChatList.Visibility         = Visibility.Collapsed;
-        ScreenSharePanel.Visibility = Visibility.Visible;
+        _screenShareWin?.Close();
+        _screenShareWin = new ScreenShareWindow(sharerName);
+        _screenShareWin.Closed += (_, _) => _screenShareWin = null;
+        _screenShareWin.Show();
     }
 
     private void CancelOp_Click(object sender, RoutedEventArgs e)
@@ -815,11 +905,9 @@ public partial class TestWindow : Window
             _screenShare.Stop();
             _room.BroadcastScreenShareStop();
             StopAudioPlayback();
-            ScreenShareBtn.Content      = "🖥  اشتراک صفحه";
+            ScreenShareBtn.Content = "🖥  اشتراک صفحه";
             ScreenShareBtn.ClearValue(System.Windows.Controls.Button.BackgroundProperty);
-            ScreenSharePanel.Visibility = Visibility.Collapsed;
-            ScreenFrameImage.Source     = null;
-            ShowChat();
+            _screenShareWin?.Close();
         }
         else
         {
@@ -831,28 +919,12 @@ public partial class TestWindow : Window
                 windowHandle: picker.SelectedHandle,
                 shareAudio:   picker.ShareAudio);
 
-            ScreenShareBtn.Content      = "⏹  توقف اشتراک";
-            ScreenShareBtn.Background   = new SolidColorBrush(Color.FromRgb(0xED, 0x42, 0x45));
-            ScreenSharerLabel.Text      = "صفحه‌نمایش من";
-            ScreenSharePanel.Visibility = Visibility.Visible;
-            ShowScreenShare();
+            ScreenShareBtn.Content    = "⏹  توقف اشتراک";
+            ScreenShareBtn.Background = new SolidColorBrush(Color.FromRgb(0xED, 0x42, 0x45));
+            OpenScreenShareWindow("من");
         }
     }
 
-    private void ShowScreenFrame(byte[] jpegBytes)
-    {
-        try
-        {
-            var bmp = new System.Windows.Media.Imaging.BitmapImage();
-            bmp.BeginInit();
-            bmp.CacheOption  = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-            bmp.StreamSource = new System.IO.MemoryStream(jpegBytes);
-            bmp.EndInit();
-            bmp.Freeze();
-            ScreenFrameImage.Source = bmp;
-        }
-        catch { }
-    }
 
     // ── Audio (screen-share) ──────────────────────────────────────────────────
 

@@ -73,10 +73,10 @@ public sealed class VoiceManager : IDisposable
         var fmt    = new WaveFormat(SampleRate, 16, Channels);
         var buffer = new BufferedWaveProvider(fmt)
         {
-            BufferDuration        = TimeSpan.FromSeconds(2),
+            BufferDuration          = TimeSpan.FromMilliseconds(150),
             DiscardOnBufferOverflow = true
         };
-        var waveOut = new WaveOutEvent();
+        var waveOut = new WaveOutEvent { DesiredLatency = 80 };
         waveOut.Init(buffer);
         waveOut.Play();
 

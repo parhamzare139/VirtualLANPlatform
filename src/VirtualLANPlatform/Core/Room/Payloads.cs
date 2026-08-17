@@ -28,3 +28,17 @@ public sealed class MemberDto
 {
     [JsonPropertyName("username")] public string Username { get; set; } = "";
 }
+
+/// <summary>Host → guest command. <see cref="Op"/> is one of mute / kick / stopshare.</summary>
+public sealed class ModerationPayload
+{
+    [JsonPropertyName("op")] public string Op { get; set; } = "";
+    [JsonPropertyName("on")] public bool   On { get; set; }
+
+    public byte[] Serialize() => JsonSerializer.SerializeToUtf8Bytes(this);
+    public static ModerationPayload? Deserialize(byte[] data)
+    {
+        try { return JsonSerializer.Deserialize<ModerationPayload>(data); }
+        catch { return null; }
+    }
+}

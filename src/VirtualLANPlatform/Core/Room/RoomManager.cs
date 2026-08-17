@@ -32,6 +32,9 @@ public sealed class RoomManager : IDisposable
     public event Action<string, byte[]>? ScreenShareFrame;
     public event Action<byte[]>?         ScreenShareAudioReceived;
 
+    /// <summary>Raised on a guest when the host issues a moderation command against it.</summary>
+    public event Action<string, bool>?   ModerationReceived;
+
     public RoomManager(P2PManager p2p, DatabaseManager db)
     {
         _p2p  = p2p;
@@ -95,6 +98,56 @@ public sealed class RoomManager : IDisposable
     }
 
     public IReadOnlyList<MemberRecord> GetMembers() => _members.Values.ToList();
+
+    // ── Moderation (host only) ────────────────────────────────────────────────
+
+    /// <summary>True when <paramref name="username"/> maps to a real, addressable peer.</summary>
+    public bool TryGetPeerId(string username, out int peerId)
+    {
+        foreach (var m in _members.Values)
+            if (m.Username == username && m.PeerId >= 0)
+            {
+                peerId = m.PeerId;
+                return true;
+            }
+
+        peerId = -1;
+        return false;
+    }
+
+    /// <summary>Mutes or unmutes a guest's microphone remotely.</summary>
+    public bool MuteMember(string username, bool muted)
+        => SendModeration(username, "mute", muted);
+
+    /// <summary>Forces a guest to stop sharing their screen.</summary>
+    public bool StopMemberShare(string username)
+        => SendModeration(username, "stopshare", true);
+
+    /// <summary>Tells a guest it was removed, then drops the connection.</summary>
+    public bool KickMember(string username)
+    {
+        if (!IsHost || !TryGetPeerId(username, out int peerId)) return false;
+
+        SendModeration(username, "kick", true);
+
+        // Give the notice a moment to land before tearing the socket down.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(200);
+            _p2p.DisconnectPeer(peerId);
+        });
+        return true;
+    }
+
+    private bool SendModeration(string username, string op, bool on)
+    {
+        if (!IsHost || !TryGetPeerId(username, out int peerId)) return false;
+
+        _p2p.SendToPeer(peerId, MessageType.Moderation,
+            new ModerationPayload { Op = op, On = on }.Serialize(),
+            DeliveryMethod.ReliableOrdered);
+        return true;
+    }
 
     // ── Screen Share ──────────────────────────────────────────────────────────
 
@@ -182,6 +235,14 @@ public sealed class RoomManager : IDisposable
             case MessageType.ScreenShareAudio:
                 ScreenShareAudioReceived?.Invoke(frame.Payload.ToArray());
                 break;
+
+            case MessageType.Moderation when !IsHost:
+            {
+                var cmd = ModerationPayload.Deserialize(frame.Payload.ToArray());
+                if (cmd is { Op.Length: > 0 })
+                    ModerationReceived?.Invoke(cmd.Op, cmd.On);
+                break;
+            }
         }
     }
 

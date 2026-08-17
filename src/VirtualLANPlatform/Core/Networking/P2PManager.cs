@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using LiteNetLib;
 using LiteNetLib.Utils;
@@ -310,18 +311,51 @@ public sealed class P2PManager : INetEventListener, IDisposable
         DisconnectTimeout          = 30000
     };
 
+    // Voice is the latency-critical consumer of PollEvents: whatever the poll
+    // interval is, it lands on every received audio frame. Task.Delay can't go
+    // below the ~15 ms system tick, so we run a dedicated thread and raise the
+    // timer resolution to 1 ms for as long as the session is live (the same
+    // trade every real-time voice client makes).
+    [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
+    private static extern uint TimeBeginPeriod(uint ms);
+
+    [DllImport("winmm.dll", EntryPoint = "timeEndPeriod")]
+    private static extern uint TimeEndPeriod(uint ms);
+
     private void StartPollLoop()
     {
+        // Reconnecting as a guest builds a fresh NetManager; without this the old
+        // thread would survive, poll the new manager too, and leak a 1 ms timer.
+        _pollCts?.Cancel();
+
         _pollCts = new CancellationTokenSource();
         var token = _pollCts.Token;
-        Task.Run(async () =>
+
+        var thread = new Thread(() =>
         {
-            while (!token.IsCancellationRequested && _net != null)
+            bool raised = false;
+            try { raised = TimeBeginPeriod(1) == 0; } catch { }
+
+            try
             {
-                _net.PollEvents();
-                await Task.Delay(15, token).ConfigureAwait(false);
+                while (!token.IsCancellationRequested && _net != null)
+                {
+                    _net.PollEvents();
+                    Thread.Sleep(1);
+                }
             }
-        }, token);
+            catch (ObjectDisposedException) { }
+            finally
+            {
+                if (raised) { try { TimeEndPeriod(1); } catch { } }
+            }
+        })
+        {
+            IsBackground = true,
+            Priority     = ThreadPriority.AboveNormal,
+            Name         = "P2P-Poll"
+        };
+        thread.Start();
     }
 
     private static NetDataWriter WrapPayload(byte[] data)

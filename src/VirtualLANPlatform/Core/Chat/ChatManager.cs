@@ -16,6 +16,7 @@ public sealed class ChatManager : IDisposable
     private string _myUsername = "کاربر";
 
     public event Action<ChatMessage>? MessageReceived;
+    public event Action<string>?      MessageDeleted;
 
     public ChatManager(P2PManager p2p)
     {
@@ -27,37 +28,89 @@ public sealed class ChatManager : IDisposable
 
     // ── Send ──────────────────────────────────────────────────────────────────
 
-    public void SendToAll(string text)
+    /// <summary>Broadcasts <paramref name="text"/>, optionally as a reply to <paramref name="replyTo"/>.</summary>
+    public void SendToAll(string text, ChatMessage? replyTo = null)
     {
         if (string.IsNullOrWhiteSpace(text) || !_p2p.IsRunning) return;
 
-        var payload = new ChatPayload(_myUsername, text.Trim(),
-            DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        string body = text.Trim();
+        string id   = Guid.NewGuid().ToString("N")[..12];
 
-        _p2p.SendToAll(MessageType.TextChat, payload.Serialize(),
-            DeliveryMethod.ReliableOrdered);
+        var payload = new ChatPayload
+        {
+            Id            = id,
+            From          = _myUsername,
+            Text          = body,
+            At            = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            ReplyToId     = replyTo?.Id,
+            ReplyToSender = replyTo?.Sender,
+            ReplyToText   = replyTo?.Preview
+        };
+
+        _p2p.SendToAll(MessageType.TextChat, payload.Serialize(), DeliveryMethod.ReliableOrdered);
 
         // Echo to self
-        MessageReceived?.Invoke(new ChatMessage(_myUsername, text.Trim(),
-            DateTime.Now, IsOwn: true));
+        MessageReceived?.Invoke(new ChatMessage
+        {
+            Id            = id,
+            Sender        = _myUsername,
+            Text          = body,
+            SentAt        = DateTime.Now,
+            IsOwn         = true,
+            ReplyToId     = replyTo?.Id,
+            ReplyToSender = replyTo?.Sender,
+            ReplyToText   = replyTo?.Preview
+        });
+    }
+
+    /// <summary>Asks every peer to tombstone the message with this id, then does so locally.</summary>
+    public void DeleteMessage(string messageId)
+    {
+        if (string.IsNullOrEmpty(messageId)) return;
+
+        if (_p2p.IsRunning)
+            _p2p.SendToAll(MessageType.ChatControl,
+                new ChatControlPayload { Op = "delete", Id = messageId }.Serialize(),
+                DeliveryMethod.ReliableOrdered);
+
+        MessageDeleted?.Invoke(messageId);
     }
 
     // ── Receive ───────────────────────────────────────────────────────────────
 
     private void OnP2PMessage(int peerId, MessageFrame frame)
     {
-        if (frame.Type != MessageType.TextChat) return;
+        switch (frame.Type)
+        {
+            case MessageType.TextChat:
+            {
+                var payload = ChatPayload.Deserialize(frame.Payload.ToArray());
+                if (payload == null) return;
 
-        var payload = ChatPayload.Deserialize(frame.Payload.ToArray());
-        if (payload == null) return;
+                MessageReceived?.Invoke(new ChatMessage
+                {
+                    Id            = string.IsNullOrEmpty(payload.Id)
+                                        ? Guid.NewGuid().ToString("N")[..12]
+                                        : payload.Id,
+                    Sender        = payload.From,
+                    Text          = payload.Text,
+                    SentAt        = DateTimeOffset.FromUnixTimeSeconds(payload.At).LocalDateTime,
+                    IsOwn         = false,
+                    ReplyToId     = payload.ReplyToId,
+                    ReplyToSender = payload.ReplyToSender,
+                    ReplyToText   = payload.ReplyToText
+                });
+                break;
+            }
 
-        var msg = new ChatMessage(
-            payload.From,
-            payload.Text,
-            DateTimeOffset.FromUnixTimeSeconds(payload.At).LocalDateTime,
-            IsOwn: false);
-
-        MessageReceived?.Invoke(msg);
+            case MessageType.ChatControl:
+            {
+                var ctrl = ChatControlPayload.Deserialize(frame.Payload.ToArray());
+                if (ctrl is { Op: "delete", Id.Length: > 0 })
+                    MessageDeleted?.Invoke(ctrl.Id);
+                break;
+            }
+        }
     }
 
     public void Dispose() => _p2p.MessageReceived -= OnP2PMessage;
@@ -67,15 +120,32 @@ public sealed class ChatManager : IDisposable
 
 file sealed class ChatPayload
 {
+    [JsonPropertyName("id")]   public string Id   { get; set; } = "";
     [JsonPropertyName("from")] public string From { get; set; } = "";
     [JsonPropertyName("text")] public string Text { get; set; } = "";
     [JsonPropertyName("at")]   public long   At   { get; set; }
 
-    public ChatPayload() { }
-    public ChatPayload(string from, string text, long at)
-        => (From, Text, At) = (from, text, at);
+    [JsonPropertyName("rid")]  public string? ReplyToId     { get; set; }
+    [JsonPropertyName("rfrom")]public string? ReplyToSender { get; set; }
+    [JsonPropertyName("rtext")]public string? ReplyToText   { get; set; }
 
-    public byte[] Serialize()   => JsonSerializer.SerializeToUtf8Bytes(this);
+    public byte[] Serialize() => JsonSerializer.SerializeToUtf8Bytes(this);
     public static ChatPayload? Deserialize(byte[] data)
-        => JsonSerializer.Deserialize<ChatPayload>(data);
+    {
+        try { return JsonSerializer.Deserialize<ChatPayload>(data); }
+        catch { return null; }
+    }
+}
+
+file sealed class ChatControlPayload
+{
+    [JsonPropertyName("op")] public string Op { get; set; } = "";
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+
+    public byte[] Serialize() => JsonSerializer.SerializeToUtf8Bytes(this);
+    public static ChatControlPayload? Deserialize(byte[] data)
+    {
+        try { return JsonSerializer.Deserialize<ChatControlPayload>(data); }
+        catch { return null; }
+    }
 }

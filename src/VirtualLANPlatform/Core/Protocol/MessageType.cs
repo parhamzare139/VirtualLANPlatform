@@ -18,5 +18,7 @@ public enum MessageType : byte
     ScreenShareStart  = 0x0E,
     ScreenShareFrame  = 0x0F,
     ScreenShareStop   = 0x10,
-    ScreenShareAudio  = 0x11
+    ScreenShareAudio  = 0x11,
+    ChatControl       = 0x12, // delete / edit of an existing chat message
+    Moderation        = 0x13  // host → guest: force-mute, kick, stop screen share
 }

@@ -233,9 +233,33 @@ public partial class TestWindow : Window
     {
         try
         {
+            System.Drawing.Icon? icon = null;
+
+            // Try the embedded logo.ico resource
+            try
+            {
+                var rs = System.Windows.Application.GetResourceStream(
+                    new Uri("pack://application:,,,/Assets/logo.ico"));
+                if (rs?.Stream != null)
+                    icon = new System.Drawing.Icon(rs.Stream);
+            }
+            catch { }
+
+            // Fallback: read the icon embedded in the EXE (set by the project's <ApplicationIcon>)
+            if (icon == null)
+            {
+                try
+                {
+                    string? exe = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                    if (exe != null)
+                        icon = System.Drawing.Icon.ExtractAssociatedIcon(exe);
+                }
+                catch { }
+            }
+
             _trayIcon = new System.Windows.Forms.NotifyIcon
             {
-                Icon    = System.Drawing.SystemIcons.Application,
+                Icon    = icon ?? System.Drawing.SystemIcons.Application,
                 Visible = true,
                 Text    = "Virtual LAN Platform"
             };

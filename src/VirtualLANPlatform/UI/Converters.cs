@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Documents;
 
@@ -87,5 +88,35 @@ public sealed class LinkFlowDocumentConverter : IValueConverter
         if (url.Contains("discord.com") || url.Contains("discord.gg"))       return "💬";
         if (url.Contains("twitter.com") || url.Contains("x.com"))            return "🐦";
         return null;
+    }
+}
+
+/// <summary>
+/// Attached property workaround for WPF's restriction on binding RichTextBox.Document directly.
+/// Bind the text string to DocumentSource; the callback creates the FlowDocument in code.
+/// </summary>
+public static class RichTextBoxHelper
+{
+    private static readonly LinkFlowDocumentConverter Conv = new();
+
+    public static readonly DependencyProperty DocumentSourceProperty =
+        DependencyProperty.RegisterAttached(
+            "DocumentSource",
+            typeof(string),
+            typeof(RichTextBoxHelper),
+            new PropertyMetadata(null, OnDocumentSourceChanged));
+
+    public static string? GetDocumentSource(DependencyObject obj)
+        => (string?)obj.GetValue(DocumentSourceProperty);
+
+    public static void SetDocumentSource(DependencyObject obj, string? value)
+        => obj.SetValue(DocumentSourceProperty, value);
+
+    private static void OnDocumentSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not System.Windows.Controls.RichTextBox rtb) return;
+        string text = e.NewValue as string ?? "";
+        rtb.Document = (FlowDocument)Conv.Convert(
+            text, typeof(FlowDocument), null, CultureInfo.CurrentCulture);
     }
 }

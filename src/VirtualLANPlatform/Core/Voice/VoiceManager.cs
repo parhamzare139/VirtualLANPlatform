@@ -1,64 +1,64 @@
 using Concentus.Enums;
 using Concentus.Structs;
 using LiteNetLib;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 using VirtualLANPlatform.Core.Networking;
 using VirtualLANPlatform.Core.Protocol;
 
 namespace VirtualLANPlatform.Core.Voice;
 
 /// <summary>
-/// Phase 7 — real-time voice chat over P2P.
-/// Mic:     WaveInEvent → gain → Opus encode → P2P (Unreliable UDP)
-/// Speaker: P2P receive → Opus decode → gain → BufferedWaveProvider
-///
-/// Latency budget (target ≈ 75 ms one-way, excluding network):
-///   capture 20 ms · encode ~1 ms · playback buffer 20 ms · WaveOut 40 ms
-/// A jitter watchdog trims the playback buffer whenever it drifts past
-/// <see cref="MaxBufferMs"/>, so latency cannot creep upward over a long call.
+/// Real-time voice chat over P2P.
+/// Capture: WASAPI (Communications role → Windows AEC/NS/AGC APOs) → resample → Opus
+/// Playback: Opus decode → gain → BufferedWaveProvider → WaveOutEvent
+/// Fallback: WinMM WaveInEvent when WASAPI is unavailable.
+/// Noise gate: frames with RMS below threshold are dropped before encoding.
 /// </summary>
 public sealed class VoiceManager : IDisposable
 {
     private readonly P2PManager _p2p;
 
-    private WaveInEvent? _waveIn;
+    private IWaveIn?              _waveIn;
+    private BufferedWaveProvider? _captureBuffer;    // raw WASAPI frames (native format)
+    private IWaveProvider?        _captureConverted; // after resample → 48 kHz mono 16-bit
+
     private OpusEncoder? _encoder;
     private readonly Dictionary<int, OpusDecoder> _decoders = [];
     private readonly Dictionary<int, (BufferedWaveProvider Buffer, WaveOutEvent Out)> _outputs = [];
 
-    /// <summary>Leftover capture bytes that didn't fill a whole 20 ms frame.</summary>
-    private byte[] _captureTail   = [];
+    private byte[] _captureTail    = [];
     private int    _captureTailLen;
 
-    private bool _isMicActive;      // true = sending audio to peers
-    private bool _isSpeakerMuted;   // true = not playing received audio
-    private bool _isForceMuted;     // true = host has muted us; overrides _isMicActive
+    private bool _isMicActive;
+    private bool _isSpeakerMuted;
+    private bool _isForceMuted;
     private bool _disposed;
 
     private float _micGain     = 1.0f;
     private float _speakerGain = 1.0f;
 
+    // Frames whose RMS is below this are silence — skip encoding to reduce network chatter.
+    private const float NoiseGateRms = 150f; // ≈ −47 dB for 16-bit PCM
+
     private const int SampleRate   = 48000;
     private const int Channels     = 1;
     private const int FrameMs      = 20;
-    private const int FrameSamples = SampleRate * FrameMs / 1000; // 960 samples
+    private const int FrameSamples = SampleRate * FrameMs / 1000; // 960
     private const int FrameBytes   = FrameSamples * 2;
-
-    /// <summary>Playback backlog above this is dropped — it is pure added latency.</summary>
-    private const int MaxBufferMs = 110;
+    private const int MaxBufferMs  = 110;
 
     public bool IsMicActive    => _isMicActive && !_isForceMuted;
     public bool IsSpeakerMuted => _isSpeakerMuted;
     public bool IsForceMuted   => _isForceMuted;
 
-    /// <summary>Microphone gain, 0.0 – 2.0 (1.0 = unchanged).</summary>
     public float MicGain
     {
         get => _micGain;
         set => _micGain = Math.Clamp(value, 0f, 2f);
     }
 
-    /// <summary>Speaker gain, 0.0 – 2.0 (1.0 = unchanged).</summary>
     public float SpeakerGain
     {
         get => _speakerGain;
@@ -81,17 +81,9 @@ public sealed class VoiceManager : IDisposable
 
     public void ToggleMic()
     {
-        if (_isForceMuted)
-        {
-            StatusChanged?.Invoke("میکروفون توسط میزبان قفل شده");
-            return;
-        }
-
+        if (_isForceMuted) { StatusChanged?.Invoke("میکروفون توسط میزبان قفل شده"); return; }
         _isMicActive = !_isMicActive;
-
-        if (_isMicActive && _waveIn == null)
-            InitCapture();
-
+        if (_isMicActive && _waveIn == null) InitCapture();
         MicChanged?.Invoke(_isMicActive);
         StatusChanged?.Invoke(_isMicActive ? "میکروفون فعال" : "میکروفون خاموش");
     }
@@ -99,26 +91,19 @@ public sealed class VoiceManager : IDisposable
     public void ToggleSpeaker()
     {
         _isSpeakerMuted = !_isSpeakerMuted;
-
-        // Drop whatever is queued so unmuting resumes at live position, not stale audio.
         if (_isSpeakerMuted)
             foreach (var (buffer, _) in _outputs.Values)
                 buffer.ClearBuffer();
-
         SpeakerChanged?.Invoke(!_isSpeakerMuted);
         StatusChanged?.Invoke(_isSpeakerMuted ? "اسپیکر خاموش" : "اسپیکر فعال");
     }
 
-    /// <summary>Applied when the host issues a mute command — the user cannot undo it.</summary>
     public void SetForceMuted(bool muted)
     {
         if (_isForceMuted == muted) return;
         _isForceMuted = muted;
-
         MicChanged?.Invoke(IsMicActive);
-        StatusChanged?.Invoke(muted
-            ? "میزبان میکروفون شما را بست"
-            : "میزبان میکروفون شما را باز کرد");
+        StatusChanged?.Invoke(muted ? "میزبان میکروفون شما را بست" : "میزبان میکروفون شما را باز کرد");
     }
 
     // ── Peer lifecycle ────────────────────────────────────────────────────────
@@ -131,8 +116,6 @@ public sealed class VoiceManager : IDisposable
             BufferDuration          = TimeSpan.FromMilliseconds(400),
             DiscardOnBufferOverflow = true
         };
-
-        // 3 buffers × 20 ms — the lowest WaveOut runs at without crackling.
         var waveOut = new WaveOutEvent { DesiredLatency = 60, NumberOfBuffers = 3 };
         waveOut.Init(buffer);
         waveOut.Play();
@@ -142,7 +125,6 @@ public sealed class VoiceManager : IDisposable
         _decoders[peer.Id] = new OpusDecoder(SampleRate, Channels);
 #pragma warning restore CS0618
 
-        // Auto-enable mic on first connection
         if (!_isMicActive)
         {
             _isMicActive = true;
@@ -169,22 +151,50 @@ public sealed class VoiceManager : IDisposable
         try
         {
 #pragma warning disable CS0618
-            _encoder = new OpusEncoder(SampleRate, Channels,
-                OpusApplication.OPUS_APPLICATION_VOIP);
+            _encoder = new OpusEncoder(SampleRate, Channels, OpusApplication.OPUS_APPLICATION_VOIP);
 #pragma warning restore CS0618
-            _encoder.Bitrate    = 32000;
-            _encoder.Complexity = 5;     // half the CPU of the default 10, no audible loss at 32 kbps
+            _encoder.Bitrate    = 48000; // higher fidelity than 32 kbps
+            _encoder.Complexity = 8;     // near-max quality, tolerable CPU
             _encoder.UseVBR     = true;
+            try { _encoder.PacketLossPercent = 10; } catch { }
 
-            _waveIn = new WaveInEvent
+            // WASAPI Communications role → activates Windows AEC / Noise Suppression / AGC APOs
+            try
             {
-                WaveFormat         = new WaveFormat(SampleRate, 16, Channels),
-                BufferMilliseconds = FrameMs,
-                NumberOfBuffers    = 3
-            };
-            _waveIn.DataAvailable += OnDataAvailable;
-            _waveIn.StartRecording();
-            StatusChanged?.Invoke("میکروفون فعال");
+                var enumerator = new MMDeviceEnumerator();
+                var commsDev   = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+                var wasapi     = new WasapiCapture(commsDev, false, FrameMs);
+
+                WaveFormat nativeFmt = wasapi.WaveFormat;
+                _captureBuffer = new BufferedWaveProvider(nativeFmt) { DiscardOnBufferOverflow = true };
+
+                // Conversion chain: native format → 48 kHz mono 16-bit PCM for Opus
+                ISampleProvider sp = _captureBuffer.ToSampleProvider();
+                if (nativeFmt.Channels > 1) sp = sp.ToMono();
+                if (nativeFmt.SampleRate != SampleRate) sp = new WdlResamplingSampleProvider(sp, SampleRate);
+                _captureConverted = new SampleToWaveProvider16(sp);
+
+                wasapi.DataAvailable += OnWasapiDataAvailable;
+                wasapi.StartRecording();
+                _waveIn = wasapi;
+                StatusChanged?.Invoke("میکروفون فعال");
+            }
+            catch
+            {
+                // Fallback to legacy WinMM (no system-level AEC)
+                _captureBuffer    = null;
+                _captureConverted = null;
+                var waveIn = new WaveInEvent
+                {
+                    WaveFormat         = new WaveFormat(SampleRate, 16, Channels),
+                    BufferMilliseconds = FrameMs,
+                    NumberOfBuffers    = 3
+                };
+                waveIn.DataAvailable += OnDataAvailable;
+                waveIn.StartRecording();
+                _waveIn = waveIn;
+                StatusChanged?.Invoke("میکروفون فعال");
+            }
         }
         catch (Exception ex)
         {
@@ -194,38 +204,56 @@ public sealed class VoiceManager : IDisposable
         }
     }
 
+    // WASAPI path: native format → conversion chain → frame accumulator → encode
+    private void OnWasapiDataAvailable(object? sender, WaveInEventArgs e)
+    {
+        if (!IsMicActive || _encoder == null || !_p2p.IsRunning) return;
+        if (_captureBuffer == null || _captureConverted == null) return;
+
+        _captureBuffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
+
+        var readBuf = new byte[FrameBytes * 4];
+        int read = _captureConverted.Read(readBuf, 0, readBuf.Length);
+        if (read <= 0) return;
+
+        int newLen = _captureTailLen + read;
+        if (_captureTail.Length < newLen) Array.Resize(ref _captureTail, Math.Max(newLen, FrameBytes * 4));
+        Buffer.BlockCopy(readBuf, 0, _captureTail, _captureTailLen, read);
+        _captureTailLen = newLen;
+        EncodeAndSend();
+    }
+
+    // WinMM path: already 48 kHz mono 16-bit, accumulate directly
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
-        if (!IsMicActive || _encoder == null || !_p2p.IsRunning)
-        {
-            _captureTailLen = 0;
-            return;
-        }
+        if (!IsMicActive || _encoder == null || !_p2p.IsRunning) { _captureTailLen = 0; return; }
 
-        // Join the previous partial frame with this callback's bytes, then emit
-        // every whole 20 ms frame. Anything left over waits for the next callback —
-        // dropping it (as the old code did) punched a hole in the audio.
-        int total = _captureTailLen + e.BytesRecorded;
-        if (_captureTail.Length < total)
-            Array.Resize(ref _captureTail, Math.Max(total, FrameBytes * 4));
-
+        int newLen = _captureTailLen + e.BytesRecorded;
+        if (_captureTail.Length < newLen) Array.Resize(ref _captureTail, Math.Max(newLen, FrameBytes * 4));
         Buffer.BlockCopy(e.Buffer, 0, _captureTail, _captureTailLen, e.BytesRecorded);
+        _captureTailLen = newLen;
+        EncodeAndSend();
+    }
 
-        int offset = 0;
-        var pcm    = new short[FrameSamples];
+    private void EncodeAndSend()
+    {
+        int offset  = 0;
+        var pcm     = new short[FrameSamples];
         var encoded = new byte[1275];
 
-        while (total - offset >= FrameBytes)
+        while (_captureTailLen - offset >= FrameBytes)
         {
             Buffer.BlockCopy(_captureTail, offset, pcm, 0, FrameBytes);
             offset += FrameBytes;
+
+            if (RmsOf(pcm, FrameSamples) < NoiseGateRms) continue; // noise gate
 
             ApplyGain(pcm, pcm.Length, _micGain);
 
             try
             {
 #pragma warning disable CS0618
-                int len = _encoder.Encode(pcm, 0, FrameSamples, encoded, 0, encoded.Length);
+                int len = _encoder!.Encode(pcm, 0, FrameSamples, encoded, 0, encoded.Length);
 #pragma warning restore CS0618
                 if (len > 0)
                     _p2p.SendToAll(MessageType.VoiceData, encoded[..len], DeliveryMethod.Unreliable);
@@ -233,7 +261,7 @@ public sealed class VoiceManager : IDisposable
             catch { }
         }
 
-        _captureTailLen = total - offset;
+        _captureTailLen -= offset;
         if (_captureTailLen > 0)
             Buffer.BlockCopy(_captureTail, offset, _captureTail, 0, _captureTailLen);
     }
@@ -249,19 +277,15 @@ public sealed class VoiceManager : IDisposable
 
         try
         {
-            byte[]  encoded = frame.Payload.ToArray();
+            byte[]  enc     = frame.Payload.ToArray();
             short[] decoded = new short[FrameSamples];
 #pragma warning disable CS0618
-            int frames = decoder.Decode(
-                encoded, 0, encoded.Length,
-                decoded, 0, FrameSamples, false);
+            int frames = decoder.Decode(enc, 0, enc.Length, decoded, 0, FrameSamples, false);
 #pragma warning restore CS0618
             if (frames <= 0) return;
 
             ApplyGain(decoded, frames, _speakerGain);
 
-            // Jitter watchdog: a backlog is latency the listener can hear. If the
-            // sender ran ahead (or we stalled), throw the backlog away and resync.
             if (pair.Buffer.BufferedDuration.TotalMilliseconds > MaxBufferMs)
                 pair.Buffer.ClearBuffer();
 
@@ -272,11 +296,18 @@ public sealed class VoiceManager : IDisposable
         catch { }
     }
 
-    /// <summary>Scales <paramref name="count"/> samples in place, saturating at the 16-bit rails.</summary>
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static float RmsOf(short[] samples, int count)
+    {
+        long sum = 0;
+        for (int i = 0; i < count; i++) sum += (long)samples[i] * samples[i];
+        return count > 0 ? (float)Math.Sqrt((double)sum / count) : 0f;
+    }
+
     private static void ApplyGain(short[] samples, int count, float gain)
     {
         if (Math.Abs(gain - 1.0f) < 0.01f) return;
-
         for (int i = 0; i < count; i++)
         {
             int v = (int)(samples[i] * gain);
@@ -284,7 +315,7 @@ public sealed class VoiceManager : IDisposable
         }
     }
 
-    // ── Reset (called on room close/leave) ────────────────────────────────────
+    // ── Reset ─────────────────────────────────────────────────────────────────
 
     public void Reset()
     {
@@ -309,6 +340,8 @@ public sealed class VoiceManager : IDisposable
 
         try { _waveIn?.StopRecording(); } catch { }
         _waveIn?.Dispose();
+        _captureBuffer    = null;
+        _captureConverted = null;
 
         foreach (var (_, (_, waveOut)) in _outputs)
         {

@@ -76,7 +76,8 @@
                       Opacity="0.55" Color="#6366F1"/>
 
     <BooleanToVisibilityConverter x:Key="BoolVis"/>
-    <ui:InitialConverter x:Key="Initial"/>
+    <ui:InitialConverter          x:Key="Initial"/>
+    <ui:LinkFlowDocumentConverter x:Key="LinkTextConv"/>
 
     <!-- ═══════════════════════════════════════════════════════════════
          SCROLLBAR — thin, self-effacing, matches the surface

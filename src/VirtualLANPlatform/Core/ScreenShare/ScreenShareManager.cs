@@ -16,29 +16,42 @@ public sealed class ScreenShareManager : IDisposable
 
     private System.Threading.Timer? _timer;
     private WasapiLoopbackCapture?  _audioCapture;
-    private bool _disposed;
+    private bool   _disposed;
     private IntPtr _windowHandle;
 
-    public bool IsSharing   { get; private set; }
-    public bool IsAudioOn   { get; private set; }
+    // Adaptive quality state
+    private int _jpegQuality = 75;
+    private int _targetFps   = 10;
+    private int _slowCount;
+    private int _fastCount;
 
-    public event Action<byte[]>?                 FrameCaptured;
-    public event Action<byte[], WaveFormat>?     AudioCaptured;
+    private const int MinQuality = 30;
+    private const int MaxQuality = 90;
+    private const int MinFps     = 3;
+    private const int MaxFps     = 15;
+
+    public bool IsSharing { get; private set; }
+    public bool IsAudioOn { get; private set; }
+
+    public event Action<byte[]>?             FrameCaptured;
+    public event Action<byte[], WaveFormat>? AudioCaptured;
 
     private static readonly ImageCodecInfo JpegCodec =
         ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
 
-    public void Start(int fps = 8, IntPtr windowHandle = default, bool shareAudio = false)
+    public void Start(int fps = 10, IntPtr windowHandle = default, bool shareAudio = false)
     {
         if (IsSharing) return;
         IsSharing     = true;
         _windowHandle = windowHandle;
+        _jpegQuality  = 75;
+        _targetFps    = Math.Clamp(fps, MinFps, MaxFps);
+        _slowCount    = 0;
+        _fastCount    = 0;
 
-        int interval = 1000 / fps;
-        _timer = new System.Threading.Timer(_ => Capture(), null, 0, interval);
+        _timer = new System.Threading.Timer(_ => Capture(), null, 0, 1000 / _targetFps);
 
-        if (shareAudio)
-            StartAudio();
+        if (shareAudio) StartAudio();
     }
 
     public void Stop()
@@ -74,6 +87,7 @@ public sealed class ScreenShareManager : IDisposable
     private void Capture()
     {
         if (!IsSharing) return;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             Bitmap bmp;
@@ -102,19 +116,68 @@ public sealed class ScreenShareManager : IDisposable
 
             using (bmp)
             {
-                double scale = Math.Min(1.0, 1920.0 / bmp.Width);
+                // Reduce max width at lower quality to save bandwidth
+                double maxW = _jpegQuality >= 65 ? 1920.0 : _jpegQuality >= 45 ? 1280.0 : 800.0;
+                double scale = Math.Min(1.0, maxW / bmp.Width);
                 int tw = (int)(bmp.Width  * scale);
                 int th = (int)(bmp.Height * scale);
 
                 using var thumb = new Bitmap(bmp, tw, th);
                 using var ms    = new MemoryStream();
                 var ep = new EncoderParameters(1);
-                ep.Param[0] = new EncoderParameter(Encoder.Quality, 70L);
+                ep.Param[0] = new EncoderParameter(Encoder.Quality, (long)_jpegQuality);
                 thumb.Save(ms, JpegCodec, ep);
                 FrameCaptured?.Invoke(ms.ToArray());
             }
         }
         catch { }
+        finally
+        {
+            sw.Stop();
+            AdaptQuality(sw.ElapsedMilliseconds);
+        }
+    }
+
+    // Adjust JPEG quality and FPS based on how long encoding takes relative to the frame interval.
+    private void AdaptQuality(long encodeMs)
+    {
+        int interval = 1000 / Math.Max(1, _targetFps);
+
+        if (encodeMs > interval * 0.75)
+        {
+            _fastCount = 0;
+            if (++_slowCount >= 3)
+            {
+                _slowCount = 0;
+                if (_jpegQuality > MinQuality)
+                    _jpegQuality = Math.Max(MinQuality, _jpegQuality - 10);
+                else if (_targetFps > MinFps)
+                {
+                    _targetFps = Math.Max(MinFps, _targetFps - 2);
+                    _timer?.Change(0, 1000 / _targetFps);
+                }
+            }
+        }
+        else if (encodeMs < interval * 0.35)
+        {
+            _slowCount = 0;
+            if (++_fastCount >= 10)
+            {
+                _fastCount = 0;
+                if (_jpegQuality < MaxQuality)
+                    _jpegQuality = Math.Min(MaxQuality, _jpegQuality + 5);
+                else if (_targetFps < MaxFps)
+                {
+                    _targetFps = Math.Min(MaxFps, _targetFps + 2);
+                    _timer?.Change(0, 1000 / _targetFps);
+                }
+            }
+        }
+        else
+        {
+            _slowCount = 0;
+            _fastCount = 0;
+        }
     }
 
     public void Dispose()

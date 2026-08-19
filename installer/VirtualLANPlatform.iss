@@ -1,5 +1,5 @@
 #define AppName      "Virtual LAN Platform"
-#define AppVersion   "1.0.3-beta"
+#define AppVersion   "1.0.4-beta"
 #define AppPublisher "VirtualLAN"
 #define AppExeName   "VirtualLANPlatform.exe"
 #define SourceDir    "..\publish"

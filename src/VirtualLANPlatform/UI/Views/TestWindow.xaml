@@ -51,8 +51,8 @@
             </Style.Resources>
         </Style>
 
-        <!-- Read-only rich text: selectable with the mouse AND renders colour emoji. -->
-        <Style x:Key="MsgBody" TargetType="{x:Type emoji:RichTextBox}">
+        <!-- Read-only rich text for chat messages — supports clickable hyperlinks. -->
+        <Style x:Key="MsgBody" TargetType="{x:Type RichTextBox}">
             <Setter Property="IsReadOnly"             Value="True"/>
             <Setter Property="IsReadOnlyCaretVisible" Value="False"/>
             <Setter Property="IsDocumentEnabled"      Value="True"/>
@@ -62,6 +62,7 @@
             <Setter Property="Margin"                 Value="0,2,0,0"/>
             <Setter Property="Foreground"             Value="{StaticResource TxtHi}"/>
             <Setter Property="FontSize"               Value="13.5"/>
+            <Setter Property="FontFamily"             Value="Vazir, Segoe UI, Tahoma"/>
             <Setter Property="SelectionBrush"         Value="{StaticResource Accent}"/>
             <Setter Property="SelectionOpacity"       Value="0.45"/>
             <Setter Property="Cursor"                 Value="IBeam"/>
@@ -69,7 +70,7 @@
             <Setter Property="ScrollViewer.VerticalScrollBarVisibility"   Value="Disabled"/>
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type emoji:RichTextBox}">
+                    <ControlTemplate TargetType="{x:Type RichTextBox}">
                         <ScrollViewer x:Name="PART_ContentHost"
                                       Focusable="False"
                                       HorizontalScrollBarVisibility="Disabled"
@@ -83,6 +84,36 @@
                     <Setter Property="LineHeight" Value="20"/>
                 </Style>
             </Style.Resources>
+        </Style>
+
+        <!-- Tab button styles (used inside ChatPanel) -->
+        <ControlTemplate x:Key="Tpl.Tab" TargetType="Button">
+            <Border x:Name="Root" Background="Transparent"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    Padding="{TemplateBinding Padding}">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Root" Property="Background" Value="#0D1219"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+        <Style x:Key="Tab.Btn" TargetType="Button">
+            <Setter Property="Background"      Value="Transparent"/>
+            <Setter Property="Foreground"      Value="{StaticResource TxtLo}"/>
+            <Setter Property="BorderBrush"     Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0,0,0,2"/>
+            <Setter Property="Padding"         Value="14,10"/>
+            <Setter Property="FontSize"        Value="12.5"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="Template"        Value="{StaticResource Tpl.Tab}"/>
+        </Style>
+        <Style x:Key="Tab.Active" TargetType="Button" BasedOn="{StaticResource Tab.Btn}">
+            <Setter Property="Foreground"  Value="{StaticResource TxtHi}"/>
+            <Setter Property="FontWeight"  Value="SemiBold"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
         </Style>
 
         <!-- ══════════ CHAT MESSAGE ══════════ -->
@@ -177,8 +208,8 @@
                         </Border>
 
                         <!-- Body -->
-                        <emoji:RichTextBox x:Name="Body" Style="{StaticResource MsgBody}"
-                                           Text="{Binding Text, Mode=OneWay}"/>
+                        <RichTextBox x:Name="Body" Style="{StaticResource MsgBody}"
+                                     Document="{Binding Text, Converter={StaticResource LinkTextConv}, Mode=OneWay}"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -486,18 +517,29 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="4,2,4,10">
-                            <ico:PackIconLucide Kind="Users" Width="14" Height="14"
-                                                Foreground="{StaticResource TxtLo}"
-                                                VerticalAlignment="Center" Margin="0,0,7,0"/>
-                            <TextBlock Text="اعضای Room" Style="{StaticResource SectionLabel}"
-                                       VerticalAlignment="Center"/>
-                            <Border Background="#1D2436" CornerRadius="6" Padding="6,1" Margin="8,0,0,0"
-                                    VerticalAlignment="Center">
-                                <TextBlock x:Name="MemberCount" Text="0" FontSize="10"
-                                           FontFamily="Consolas" Foreground="{StaticResource TxtMid}"/>
-                            </Border>
-                        </StackPanel>
+                        <Grid Grid.Row="0" Margin="4,2,4,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <ico:PackIconLucide Kind="Users" Width="14" Height="14"
+                                                    Foreground="{StaticResource TxtLo}"
+                                                    VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                <TextBlock Text="اعضای Room" Style="{StaticResource SectionLabel}"
+                                           VerticalAlignment="Center"/>
+                                <Border Background="#1D2436" CornerRadius="6" Padding="6,1" Margin="8,0,0,0"
+                                        VerticalAlignment="Center">
+                                    <TextBlock x:Name="MemberCount" Text="0" FontSize="10"
+                                               FontFamily="Consolas" Foreground="{StaticResource TxtMid}"/>
+                                </Border>
+                            </StackPanel>
+                            <Button Grid.Column="1" Style="{StaticResource Btn.IconSm}"
+                                    Width="22" Height="22" VerticalAlignment="Center"
+                                    ToolTip="بروزرسانی لیست اعضا" Click="RefreshMembers_Click">
+                                <ico:PackIconLucide Kind="RefreshCw" Width="12" Height="12"/>
+                            </Button>
+                        </Grid>
 
                         <ListBox Grid.Row="1" x:Name="MemberList"
                                  Background="Transparent" BorderThickness="0" Padding="0"
@@ -857,25 +899,56 @@
                     </Button>
                 </Grid>
 
-                <!-- ══════════ CHAT ══════════ -->
+                <!-- ══════════ CHAT / FILES / SCREEN SHARE ══════════ -->
                 <Border Grid.Row="1" x:Name="ChatPanel" Style="{StaticResource Panel}"
                         Visibility="Collapsed" ClipToBounds="True">
                     <Grid>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/> <!-- Tab bar -->
+                            <RowDefinition Height="*"/>    <!-- Content area -->
+                            <RowDefinition Height="Auto"/> <!-- Reply bar -->
+                            <RowDefinition Height="Auto"/> <!-- Composer -->
                         </Grid.RowDefinitions>
 
-                        <ListBox Grid.Row="0" x:Name="ChatList"
+                        <!-- Tab bar -->
+                        <Border Grid.Row="0" BorderBrush="{StaticResource StrokeSoft}" BorderThickness="0,0,0,1">
+                            <StackPanel Orientation="Horizontal" Margin="4,0">
+                                <Button x:Name="TabChatBtn"  Style="{StaticResource Tab.Active}" Content="چت"
+                                        Tag="chat"  Click="Tab_Click"/>
+                                <Button x:Name="TabFilesBtn" Style="{StaticResource Tab.Btn}"    Content="فایل‌ها"
+                                        Tag="files" Click="Tab_Click"/>
+                                <Button x:Name="TabShareBtn" Style="{StaticResource Tab.Btn}"    Content="اشتراک صفحه"
+                                        Tag="share" Click="Tab_Click" Visibility="Collapsed"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Chat messages -->
+                        <ListBox Grid.Row="1" x:Name="ChatList"
                                  Background="Transparent" BorderThickness="0" Padding="6,10"
                                  ItemContainerStyle="{StaticResource BareItem}"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  VirtualizingPanel.ScrollUnit="Pixel"
                                  PreviewMouseWheel="ChatList_PreviewMouseWheel"/>
 
-                        <!-- Reply composer strip -->
-                        <Border Grid.Row="1" x:Name="ReplyBar" Visibility="Collapsed"
+                        <!-- File transfers (separate tab) -->
+                        <ListBox Grid.Row="1" x:Name="FileList"
+                                 Background="Transparent" BorderThickness="0" Padding="6,10"
+                                 ItemContainerStyle="{StaticResource BareItem}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 Visibility="Collapsed"/>
+
+                        <!-- Screen share viewer -->
+                        <Grid Grid.Row="1" x:Name="ShareViewArea" Background="#080B12" Visibility="Collapsed">
+                            <Image x:Name="ScreenShareImg" Stretch="Uniform"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="SharePlaceholder" Text="در انتظار تصویر..."
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Foreground="{StaticResource TxtLo}" FontSize="13"
+                                       Visibility="Collapsed"/>
+                        </Grid>
+
+                        <!-- Reply composer strip (chat tab only) -->
+                        <Border Grid.Row="2" x:Name="ReplyBar" Visibility="Collapsed"
                                 Background="#151A27" CornerRadius="10"
                                 BorderBrush="{StaticResource Accent}" BorderThickness="0,0,3,0"
                                 Margin="12,0,12,8" Padding="11,7">
@@ -902,8 +975,8 @@
                             </Grid>
                         </Border>
 
-                        <!-- Composer -->
-                        <Border Grid.Row="2" x:Name="Composer" Margin="12,0,12,12"
+                        <!-- Composer (chat tab only) -->
+                        <Border Grid.Row="3" x:Name="Composer" Margin="12,0,12,12"
                                 Background="{StaticResource InputBg}" CornerRadius="12"
                                 BorderBrush="{StaticResource Stroke}" BorderThickness="1">
                             <Grid>
@@ -913,7 +986,6 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
 
-                                <!-- Emoji picker trigger -->
                                 <Button Grid.Column="0" x:Name="EmojiBtn" Style="{StaticResource Btn.IconSm}"
                                         Width="38" Height="44" ToolTip="ایموجی"
                                         Click="EmojiBtn_Click">
@@ -1019,7 +1091,7 @@
                            HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Run Text="Virtual LAN Platform"/>
                     <Run Text=" · "/>
-                    <Run Text="v1.0.3" FontFamily="Consolas"/>
+                    <Run Text="v1.0.4" FontFamily="Consolas"/>
                 </TextBlock>
                 <Button Style="{StaticResource Btn.Nav}" HorizontalAlignment="Left"
                         Foreground="{StaticResource TxtLo}" Padding="8,4"

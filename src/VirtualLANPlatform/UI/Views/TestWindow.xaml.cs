@@ -64,7 +64,7 @@ public partial class TestWindow : Window
     private Storyboard?                 _dotPulse;
     private WaveOutEvent?               _audioOut;
     private BufferedWaveProvider?       _audioBuffer;
-    private ScreenShareWindow?          _screenShareWin;
+    private string                      _activeTab = "chat";
 
     private ScrollViewer?               _chatScrollViewer;
     private double                      _scrollCurrentOffset;
@@ -110,6 +110,10 @@ public partial class TestWindow : Window
         LoadWindowIcon();
 
         EmojiPickerCtl.Picked += InsertEmoji;
+
+        // Catch hyperlink navigations bubbled from any RichTextBox in ChatList
+        AddHandler(System.Windows.Documents.Hyperlink.RequestNavigateEvent,
+            new System.Windows.Navigation.RequestNavigateEventHandler(OnLinkNavigate));
     }
 
     // ── Persistence ───────────────────────────────────────────────────────────
@@ -440,13 +444,14 @@ public partial class TestWindow : Window
         }
         StopAudioPlayback();
         _remoteSharerUsername = null;
-        _screenShareWin?.Close();
+        CloseScreenShareTab();
 
         SetMicVisual(true);
         SetSpeakerVisual(true);
 
         MemberList.Items.Clear();
         ChatList.Items.Clear();
+        FileList.Items.Clear();
         _fileNotifs.Clear();
         _messages.Clear();
         _mutedMembers.Clear();
@@ -532,7 +537,14 @@ public partial class TestWindow : Window
         _screenShare.FrameCaptured += bytes =>
         {
             _room.BroadcastScreenShareFrame(bytes);
-            Dispatch(() => _screenShareWin?.UpdateFrame(Decode(bytes)));
+            Dispatch(() =>
+            {
+                if (ShareViewArea.Visibility == Visibility.Visible)
+                {
+                    SharePlaceholder.Visibility = Visibility.Collapsed;
+                    ScreenShareImg.Source       = Decode(bytes);
+                }
+            });
         };
 
         _screenShare.AudioCaptured += SendAudio;
@@ -543,17 +555,28 @@ public partial class TestWindow : Window
         {
             _remoteSharerUsername    = username;
             ScreenShareBtn.IsEnabled = false;
-            OpenScreenShareWindow(username);
+            OpenScreenShareTab();
         });
 
-        _room.ScreenShareFrame += (_, bytes) => Dispatch(() => _screenShareWin?.UpdateFrame(Decode(bytes)));
+        _room.ScreenShareFrame += (_, bytes) => Dispatch(() =>
+        {
+            if (ShareViewArea.Visibility == Visibility.Visible)
+            {
+                SharePlaceholder.Visibility = Visibility.Collapsed;
+                ScreenShareImg.Source       = Decode(bytes);
+            }
+        });
 
-        _room.ScreenShareStopped += _ => Dispatch(() =>
+        _room.ScreenShareStopped += username => Dispatch(() =>
         {
             _remoteSharerUsername = null;
-            _screenShareWin?.SetStopped();
             StopAudioPlayback();
             if (_p2p.PeerCount > 0) ScreenShareBtn.IsEnabled = true;
+
+            SharePlaceholder.Text       = "اشتراک صفحه متوقف شد";
+            SharePlaceholder.Visibility = Visibility.Visible;
+            ScreenShareImg.Source       = null;
+            _ = Task.Delay(1500).ContinueWith(_ => Dispatch(CloseScreenShareTab));
         });
 
         // ── Chat ──────────────────────────────────────────────────────────────
@@ -586,8 +609,9 @@ public partial class TestWindow : Window
                 CanDownload = true
             };
             _fileNotifs[info.Id] = notif;
-            ChatList.Items.Add(notif);
-            ChatList.ScrollIntoView(notif);
+            FileList.Items.Add(notif);
+            if (_activeTab != "files") SetActiveTab("files");
+            FileList.ScrollIntoView(notif);
             Activate();
             VoiceStatus.Text = $"فایل دریافتی: {info.FileName}";
         });
@@ -874,6 +898,8 @@ public partial class TestWindow : Window
             case "mute":
                 _voice.SetForceMuted(on);
                 SetMicVisual(_voice.IsMicActive);
+                if (on) ShowToast("میکروفون قطع شد", "صدای شما توسط میزبان قطع شد", isError: true);
+                else    ShowToast("میکروفون فعال شد", "میزبان میکروفون شما را فعال کرد");
                 break;
 
             case "stopshare":
@@ -882,8 +908,9 @@ public partial class TestWindow : Window
                     _screenShare.Stop();
                     _room.BroadcastScreenShareStop();
                     SetShareButton(sharing: false);
-                    _screenShareWin?.Close();
+                    CloseScreenShareTab();
                     VoiceStatus.Text = "میزبان اشتراک صفحه شما را قطع کرد";
+                    ShowToast("اشتراک صفحه متوقف شد", "Screen Share شما توسط میزبان متوقف شد", isError: true);
                 }
                 break;
 
@@ -956,8 +983,9 @@ public partial class TestWindow : Window
             IsSent = true, Status = "در انتظار پذیرش...", CanDownload = false
         };
         _fileNotifs[transferId] = notif;
-        ChatList.Items.Add(notif);
-        ChatList.ScrollIntoView(notif);
+        FileList.Items.Add(notif);
+        SetActiveTab("files");
+        FileList.ScrollIntoView(notif);
 
         _ = Task.Run(() => _file.SendFileAsync(path, transferId));
     }
@@ -1211,12 +1239,20 @@ public partial class TestWindow : Window
 
     // ── Screen share ──────────────────────────────────────────────────────────
 
-    private void OpenScreenShareWindow(string sharerName)
+    private void OpenScreenShareTab()
     {
-        _screenShareWin?.Close();
-        _screenShareWin = new ScreenShareWindow(sharerName);
-        _screenShareWin.Closed += (_, _) => _screenShareWin = null;
-        _screenShareWin.Show();
+        ScreenShareImg.Source       = null;
+        SharePlaceholder.Text       = "در انتظار تصویر...";
+        SharePlaceholder.Visibility = Visibility.Visible;
+        TabShareBtn.Visibility      = Visibility.Visible;
+        SetActiveTab("share");
+    }
+
+    private void CloseScreenShareTab()
+    {
+        ScreenShareImg.Source  = null;
+        TabShareBtn.Visibility = Visibility.Collapsed;
+        if (_activeTab == "share") SetActiveTab("chat");
     }
 
     private void SetShareButton(bool sharing)
@@ -1236,7 +1272,7 @@ public partial class TestWindow : Window
             _room.BroadcastScreenShareStop();
             StopAudioPlayback();
             SetShareButton(sharing: false);
-            _screenShareWin?.Close();
+            CloseScreenShareTab();
         }
         else
         {
@@ -1244,12 +1280,12 @@ public partial class TestWindow : Window
             if (picker.ShowDialog() != true) return;
 
             _room.BroadcastScreenShareStart();
-            _screenShare.Start(fps: 8,
+            _screenShare.Start(fps: 10,
                 windowHandle: picker.SelectedHandle,
                 shareAudio:   picker.ShareAudio);
 
             SetShareButton(sharing: true);
-            OpenScreenShareWindow("من");
+            OpenScreenShareTab();
         }
     }
 
@@ -1297,6 +1333,54 @@ public partial class TestWindow : Window
         _audioOut?.Dispose();
         _audioOut    = null;
         _audioBuffer = null;
+    }
+
+    // ── Tab management ────────────────────────────────────────────────────────
+
+    private void SetActiveTab(string tab)
+    {
+        _activeTab = tab;
+
+        if (tab != "chat" && EmojiPopup.IsOpen)
+            EmojiPopup.IsOpen = false;
+
+        ChatList.Visibility      = tab == "chat"  ? Visibility.Visible : Visibility.Collapsed;
+        FileList.Visibility      = tab == "files" ? Visibility.Visible : Visibility.Collapsed;
+        ShareViewArea.Visibility = tab == "share" ? Visibility.Visible : Visibility.Collapsed;
+
+        bool chatActive = tab == "chat";
+        Composer.Visibility = chatActive ? Visibility.Visible : Visibility.Collapsed;
+        if (!chatActive) ReplyBar.Visibility = Visibility.Collapsed;
+
+        TabChatBtn.Style  = (Style)FindResource(tab == "chat"  ? "Tab.Active" : "Tab.Btn");
+        TabFilesBtn.Style = (Style)FindResource(tab == "files" ? "Tab.Active" : "Tab.Btn");
+        TabShareBtn.Style = (Style)FindResource(tab == "share" ? "Tab.Active" : "Tab.Btn");
+    }
+
+    private void Tab_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string t }) SetActiveTab(t);
+    }
+
+    private void RefreshMembers_Click(object sender, RoutedEventArgs e) => RefreshMemberList();
+
+    // ── Link navigation ───────────────────────────────────────────────────────
+
+    private async void OnLinkNavigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
+    {
+        e.Handled = true;
+        string url = e.Uri.AbsoluteUri;
+        bool ok = await ShowModal("باز کردن لینک", url, "باز کردن", "لغو");
+        if (!ok) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName        = url,
+                UseShellExecute = true
+            });
+        }
+        catch { }
     }
 
     // ── Members ───────────────────────────────────────────────────────────────

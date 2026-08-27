@@ -68,6 +68,11 @@ public readonly struct MessageFrame
         uint length = ((uint)data[4] << 24) | ((uint)data[5] << 16)
                     | ((uint)data[6] << 8)  | data[7];
 
+        // A hostile or corrupt peer could send a length that overflows when cast to
+        // int (e.g. 0xFFFFFFFF becomes -1) and crashes the Slice call below instead
+        // of just failing this one frame.
+        if (length > int.MaxValue - HeaderSize) return false;
+
         int total = HeaderSize + (int)length;
         if (data.Length < total) return false;
 

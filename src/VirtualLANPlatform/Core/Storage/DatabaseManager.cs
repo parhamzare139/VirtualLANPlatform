@@ -16,6 +16,13 @@ public sealed class DatabaseManager : IDisposable
 
     public SqliteConnection Connection => _conn;
 
+    // A single SqliteConnection must not be used concurrently from two threads —
+    // SaveRoom runs on the UI thread (CreateRoom_Click) while RecordJoin/RecordLeave
+    // run on the P2P-poll thread (RoomManager's OnPeerConnected/OnPeerDisconnected).
+    // Without this, a join/leave landing mid-query from the other thread throws
+    // "database is locked", which callers here don't catch.
+    public readonly object SyncRoot = new();
+
     public DatabaseManager()
     {
         string dbPath = Path.Combine(
@@ -72,9 +79,12 @@ public sealed class DatabaseManager : IDisposable
 
     public void Execute(string sql)
     {
-        using var cmd = _conn.CreateCommand();
-        cmd.CommandText = sql;
-        cmd.ExecuteNonQuery();
+        lock (SyncRoot)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.ExecuteNonQuery();
+        }
     }
 
     public SqliteCommand CreateCommand() => _conn.CreateCommand();

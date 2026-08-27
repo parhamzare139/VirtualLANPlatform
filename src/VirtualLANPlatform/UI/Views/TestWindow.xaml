@@ -146,21 +146,8 @@
                 </Border.Triggers>
 
                 <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
 
-                    <!-- Avatar -->
-                    <Border x:Name="Avatar" Grid.Column="0" Width="34" Height="34" CornerRadius="999"
-                            Margin="0,1,10,0" VerticalAlignment="Top"
-                            Background="{StaticResource AccentGrad}">
-                        <TextBlock Text="{Binding Sender, Converter={StaticResource Initial}}"
-                                   Foreground="White" FontSize="14" FontWeight="Bold"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-
-                    <StackPanel Grid.Column="1">
+                    <StackPanel Grid.Column="0">
                         <!-- Header: name · time · hover actions -->
                         <Grid x:Name="HeaderRow">
                             <Grid.ColumnDefinitions>
@@ -225,7 +212,6 @@
                     <Setter TargetName="Root" Property="Background" Value="#1A2850"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding ShowHeader}" Value="False">
-                    <Setter TargetName="Avatar"    Property="Opacity"    Value="0"/>
                     <Setter TargetName="HeaderRow" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="Root"      Property="Padding"    Value="8,2,8,4"/>
                 </DataTrigger>
@@ -334,29 +320,18 @@
 
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <Grid Grid.Column="0" Width="28" Height="28" Margin="0,0,9,0">
-                        <Border CornerRadius="999" Background="{StaticResource AccentGrad}"/>
-                        <TextBlock Text="{Binding Initial}" Foreground="White"
-                                   FontSize="12" FontWeight="Bold"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <Ellipse Width="9" Height="9" Fill="{StaticResource Ok}"
-                                 Stroke="{StaticResource Surface}" StrokeThickness="2"
-                                 HorizontalAlignment="Left" VerticalAlignment="Bottom"/>
-                    </Grid>
-
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Username}" Foreground="{StaticResource TxtHi}"
                                    FontSize="12.5" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Text="{Binding RoleLabel}" Foreground="{StaticResource TxtLo}"
                                    FontSize="10" Visibility="{Binding RoleVisibility}"/>
                     </StackPanel>
 
-                    <StackPanel x:Name="Mod" Grid.Column="2" Orientation="Horizontal"
+                    <StackPanel x:Name="Mod" Grid.Column="1" Orientation="Horizontal"
                                 Opacity="0" Visibility="{Binding ModVisibility}">
                         <Button Style="{StaticResource Btn.IconSm}" Width="24" Height="24"
                                 ToolTip="{Binding MuteTip}" Tag="{Binding}" Click="ModMute_Click">
@@ -441,54 +416,58 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Lobby: cancel only -->
-                <StackPanel x:Name="LobbyHeaderPanel" Grid.Column="2"
-                            Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="CancelOpBtn" Style="{StaticResource Btn.Danger}"
-                            Height="34" Padding="14,0" Visibility="Collapsed"
-                            Click="CancelOp_Click">
-                        <StackPanel Orientation="Horizontal">
-                            <ico:PackIconLucide Kind="X" Width="14" Height="14"
-                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock Text="لغو عملیات" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
+                <!-- Right side: cancel (busy) or room header -->
+                <Grid Grid.Column="2" VerticalAlignment="Center">
 
-                <!-- Room: host IP chip + leave -->
-                <StackPanel x:Name="RoomHeaderPanel" Grid.Column="2"
-                            Orientation="Horizontal" Visibility="Collapsed"
-                            VerticalAlignment="Center">
-                    <Button x:Name="LeaveCloseBtn" Style="{StaticResource Btn.Danger}"
-                            IsEnabled="False" Padding="14,8" FontSize="12"
-                            Click="LeaveClose_Click">
-                        <StackPanel Orientation="Horizontal">
-                            <ico:PackIconLucide Kind="LogOut" Width="14" Height="14"
-                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock x:Name="LeaveCloseText" Text="خروج از Room" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-
-                    <StackPanel x:Name="HostIpPanel" Orientation="Horizontal"
-                                Margin="14,0,0,0" Visibility="Collapsed">
-                        <TextBlock x:Name="IpCopiedLabel" Text="کپی شد ✓"
-                                   Foreground="{StaticResource Ok}" FontSize="11"
-                                   VerticalAlignment="Center" Margin="0,0,10,0" Opacity="0"/>
-                        <Border Background="#151A27" CornerRadius="9" Padding="11,6" Cursor="Hand"
-                                BorderBrush="{StaticResource Stroke}" BorderThickness="1"
-                                ToolTip="کلیک برای کپی"
-                                MouseLeftButtonUp="HostIpBorder_Click">
+                    <!-- Lobby: cancel (shown during busy state) -->
+                    <StackPanel x:Name="LobbyHeaderPanel"
+                                Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="CancelOpBtn" Style="{StaticResource Btn.Danger}"
+                                Height="34" Padding="14,0" Visibility="Collapsed"
+                                Click="CancelOp_Click">
                             <StackPanel Orientation="Horizontal">
-                                <ico:PackIconLucide Kind="Copy" Width="13" Height="13"
-                                                    Foreground="{StaticResource TxtLo}"
-                                                    VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock x:Name="HostIpLabel" FontFamily="Consolas" FontSize="12.5"
-                                           Foreground="{StaticResource Accent2}" FontWeight="Bold"
-                                           FlowDirection="LeftToRight" VerticalAlignment="Center"/>
+                                <ico:PackIconLucide Kind="X" Width="14" Height="14"
+                                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBlock Text="لغو عملیات" VerticalAlignment="Center"/>
                             </StackPanel>
-                        </Border>
+                        </Button>
                     </StackPanel>
-                </StackPanel>
+
+                    <!-- Room: host IP chip + leave -->
+                    <StackPanel x:Name="RoomHeaderPanel"
+                                Orientation="Horizontal" Visibility="Collapsed"
+                                VerticalAlignment="Center">
+                        <Button x:Name="LeaveCloseBtn" Style="{StaticResource Btn.Danger}"
+                                IsEnabled="False" Padding="14,8" FontSize="12"
+                                Click="LeaveClose_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <ico:PackIconLucide Kind="LogOut" Width="14" Height="14"
+                                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBlock x:Name="LeaveCloseText" Text="خروج از Room" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <StackPanel x:Name="HostIpPanel" Orientation="Horizontal"
+                                    Margin="14,0,0,0" Visibility="Collapsed">
+                            <TextBlock x:Name="IpCopiedLabel" Text="کپی شد ✓"
+                                       Foreground="{StaticResource Ok}" FontSize="11"
+                                       VerticalAlignment="Center" Margin="0,0,10,0" Opacity="0"/>
+                            <Border Background="#151A27" CornerRadius="9" Padding="11,6" Cursor="Hand"
+                                    BorderBrush="{StaticResource Stroke}" BorderThickness="1"
+                                    ToolTip="کلیک برای کپی"
+                                    MouseLeftButtonUp="HostIpBorder_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <ico:PackIconLucide Kind="Copy" Width="13" Height="13"
+                                                        Foreground="{StaticResource TxtLo}"
+                                                        VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock x:Name="HostIpLabel" FontFamily="Consolas" FontSize="12.5"
+                                               Foreground="{StaticResource Accent2}" FontWeight="Bold"
+                                               FlowDirection="LeftToRight" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
             </Grid>
         </Border>
 
@@ -499,7 +478,6 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
             <!-- ── MEMBER SIDEBAR (right in RTL) ── -->
@@ -549,7 +527,7 @@
                     </Grid>
                 </Border>
 
-                <!-- Connection facts -->
+                <!-- Connection facts: compact horizontal strip -->
                 <Border Grid.Row="2" Style="{StaticResource Panel}" Padding="14,12">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
@@ -560,43 +538,40 @@
                                        VerticalAlignment="Center"/>
                         </StackPanel>
 
-                        <!-- Two explicit columns: under RTL, HorizontalAlignment is
-                             mirrored, so overlaying label and value in one cell collides. -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="نقش" Style="{StaticResource Lbl}"/>
-                            <!-- HorizontalAlignment is mirrored under RTL: Right = visual left. -->
-                            <TextBlock Grid.Column="1" x:Name="DbgRole" Text="—"
-                                       Style="{StaticResource Val}" HorizontalAlignment="Right"/>
-                        </Grid>
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="تعداد Peer" Style="{StaticResource Lbl}"/>
-                            <TextBlock Grid.Column="1" x:Name="DbgPeers" Text="0"
-                                       Style="{StaticResource Val}" FontFamily="Consolas"
-                                       HorizontalAlignment="Right"/>
-                        </Grid>
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="1"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="1"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="رمزنگاری" Style="{StaticResource Lbl}"/>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                        HorizontalAlignment="Right">
-                                <ico:PackIconLucide x:Name="DbgEncIcon" Kind="ShieldOff"
-                                                    Width="13" Height="13"
+
+                            <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                                <TextBlock x:Name="DbgRole" Text="—" Style="{StaticResource Val}"
+                                           HorizontalAlignment="Center"/>
+                                <TextBlock Text="نقش" Style="{StaticResource Lbl}"
+                                           HorizontalAlignment="Center" Margin="0,3,0,0"/>
+                            </StackPanel>
+
+                            <Border Grid.Column="1" Background="{StaticResource StrokeSoft}" Margin="0,2"/>
+
+                            <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                                <TextBlock x:Name="DbgPeers" Text="0" Style="{StaticResource Val}"
+                                           FontFamily="Consolas" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Peer" Style="{StaticResource Lbl}"
+                                           HorizontalAlignment="Center" Margin="0,3,0,0"/>
+                            </StackPanel>
+
+                            <Border Grid.Column="3" Background="{StaticResource StrokeSoft}" Margin="0,2"/>
+
+                            <StackPanel Grid.Column="4" HorizontalAlignment="Center">
+                                <ico:PackIconLucide x:Name="DbgEncIcon" Kind="ShieldOff" Width="14" Height="14"
                                                     Foreground="{StaticResource Warn}"
-                                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                    HorizontalAlignment="Center"/>
                                 <TextBlock x:Name="DbgEncryption" Text="بدون رمز"
-                                           Foreground="{StaticResource Warn}" FontSize="11"
-                                           VerticalAlignment="Center"/>
+                                           Foreground="{StaticResource Warn}" FontSize="10.5"
+                                           HorizontalAlignment="Center" Margin="0,3,0,0"/>
                             </StackPanel>
                         </Grid>
                     </StackPanel>
@@ -633,7 +608,7 @@
                                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Grid>
                             </Button>
-                            <StackPanel Width="112" Margin="11,0,18,0" VerticalAlignment="Center">
+                            <StackPanel Width="112" Margin="11,0,14,0" VerticalAlignment="Center">
                                 <Grid Margin="0,0,0,4">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
@@ -663,6 +638,9 @@
                                                FontSize="14" VerticalAlignment="Center" Margin="4,0,0,0"/>
                                 </Grid>
                             </StackPanel>
+
+                            <Border Width="1" Height="30" Background="{StaticResource StrokeSoft}"
+                                    Margin="0,0,14,0" VerticalAlignment="Center"/>
 
                             <Button x:Name="SpeakerBtn" Style="{StaticResource Btn.Icon}"
                                     Background="{StaticResource OkGrad}" IsEnabled="False"
@@ -713,15 +691,6 @@
                                    VerticalAlignment="Center" HorizontalAlignment="Center"/>
 
                         <StackPanel Grid.Column="2" Orientation="Horizontal">
-                            <Button x:Name="SendFileBtn" Style="{StaticResource Btn.Ghost}"
-                                    IsEnabled="False" Margin="0,0,8,0" Padding="13,9"
-                                    Click="SendFile_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <ico:PackIconLucide Kind="Paperclip" Width="15" Height="15"
-                                                        VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                    <TextBlock Text="ارسال فایل" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
                             <Button x:Name="ScreenShareBtn" Style="{StaticResource Btn.Ghost}"
                                     IsEnabled="False" Padding="13,9"
                                     Click="ScreenShare_Click">
@@ -738,7 +707,8 @@
                 </Border>
 
                 <!-- ══════════ LOBBY ══════════ -->
-                <Grid x:Name="LobbyActions" Grid.Row="1" VerticalAlignment="Center">
+                <Grid x:Name="LobbyActions" Grid.Row="1" VerticalAlignment="Center"
+                      HorizontalAlignment="Center" MaxWidth="760">
                     <Grid.RenderTransform><TranslateTransform x:Name="LobbySlide" Y="26"/></Grid.RenderTransform>
                     <Grid.Triggers>
                         <EventTrigger RoutedEvent="Grid.Loaded">
@@ -755,9 +725,123 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0">
+                    <!-- Profile + Settings card -->
+                    <Border Grid.Row="0" x:Name="LobbyTopBar" Style="{StaticResource Card}"
+                            Padding="22,20" Margin="0,0,0,16">
+                        <StackPanel>
+
+                            <!-- Identity: username -->
+                            <StackPanel>
+                                <TextBlock Text="نام کاربری شما در Room" Style="{StaticResource Lbl}" Margin="0,0,0,8"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="UsernameBox" Grid.Column="0" Text="کاربر"
+                                             Style="{StaticResource Inp}" Height="40" FontSize="13.5" FontWeight="SemiBold"
+                                             LostFocus="UsernameBox_LostFocus" KeyDown="UsernameBox_KeyDown"/>
+                                    <Button x:Name="SaveUsernameBtn" Grid.Column="2"
+                                            Style="{StaticResource Btn.Ghost}"
+                                            Height="40" Padding="14,0" Click="SaveUsername_Click">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <ico:PackIconLucide x:Name="SaveIcon" Kind="Save" Width="14" Height="14"
+                                                                VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                            <TextBlock x:Name="SaveText" Text="ذخیره" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+                            </StackPanel>
+
+                            <!-- Network settings toggle -->
+                            <Border x:Name="NetSettingsToggle" Margin="0,18,0,0" Cursor="Hand"
+                                    CornerRadius="8" MouseLeftButtonUp="NetSettingsToggle_Click">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#171B28"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Border BorderBrush="{StaticResource StrokeSoft}" BorderThickness="0,1,0,0"
+                                        Padding="4,13,4,13">
+                                    <Grid VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ico:PackIconLucide Grid.Column="0" Kind="Settings2" Width="13" Height="13"
+                                                            Foreground="{StaticResource TxtLo}"
+                                                            VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Grid.Column="1" Text="تنظیمات شبکه (پورت، آداپتور)"
+                                                   Foreground="{StaticResource TxtLo}" FontSize="12" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                        <ico:PackIconLucide x:Name="NetSettingsChevron" Grid.Column="2" Kind="ChevronDown"
+                                                            Width="13" Height="13" Foreground="{StaticResource TxtLo}"
+                                                            VerticalAlignment="Center" Margin="8,0,0,0"
+                                                            RenderTransformOrigin="0.5,0.5">
+                                            <ico:PackIconLucide.RenderTransform>
+                                                <RotateTransform x:Name="ChevronRotate" Angle="0"/>
+                                            </ico:PackIconLucide.RenderTransform>
+                                        </ico:PackIconLucide>
+                                    </Grid>
+                                </Border>
+                            </Border>
+
+                            <!-- Network settings (collapsible) -->
+                            <Grid x:Name="NetSettingsPanel" Margin="0,14,0,0" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="12"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="پورت اتصال"
+                                           Style="{StaticResource Lbl}" VerticalAlignment="Center"/>
+                                <TextBox x:Name="PortBox" Grid.Column="2" Text="42777"
+                                         Style="{StaticResource Inp}" FlowDirection="LeftToRight"
+                                         FontFamily="Consolas" FontSize="13" Height="36"
+                                         LostFocus="PortBox_LostFocus" KeyDown="PortBox_KeyDown"
+                                         PreviewTextInput="PortBox_PreviewTextInput"
+                                         DataObject.Pasting="PortBox_Pasting"/>
+                                <ComboBox x:Name="AdapterBox" Grid.Column="4"
+                                          Style="{StaticResource Cmb}" Height="36"
+                                          FlowDirection="LeftToRight"
+                                          SelectionChanged="AdapterBox_SelectionChanged"/>
+                                <Button Grid.Column="6" Style="{StaticResource Btn.IconSm}"
+                                        Width="28" Height="28" VerticalAlignment="Center"
+                                        ToolTip="بروزرسانی آداپتورها" Click="RefreshAdapters_Click">
+                                    <ico:PackIconLucide Kind="RefreshCw" Width="12" Height="12"/>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Divider -->
+                    <Grid Grid.Row="1" Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Height="1" Background="{StaticResource StrokeSoft}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="یکی از دو مسیر را انتخاب کنید" Margin="14,0"
+                                   Foreground="{StaticResource TxtLo}" FontSize="11" FontWeight="SemiBold"/>
+                        <Border Grid.Column="2" Height="1" Background="{StaticResource StrokeSoft}" VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <Grid Grid.Row="2">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="14"/>
@@ -824,10 +908,14 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBox x:Name="JoinCodeBox" Style="{StaticResource Inp}"
+                                             MinWidth="150" MaxWidth="220" HorizontalAlignment="Stretch"
                                              FlowDirection="LeftToRight" FontFamily="Consolas"
-                                             FontSize="13" Height="42"/>
+                                             FontSize="13" Height="42"
+                                             PreviewTextInput="JoinCodeBox_PreviewTextInput"
+                                             DataObject.Pasting="JoinCodeBox_Pasting"
+                                             LostFocus="JoinCodeBox_LostFocus" KeyDown="JoinCodeBox_KeyDown"/>
                                     <Button Grid.Column="2" x:Name="JoinBtn" Style="{StaticResource Btn.Success}"
-                                            Padding="20,0" Height="42" Click="Join_Click">
+                                            Padding="16,0" Height="42" Click="Join_Click">
                                         <StackPanel Orientation="Horizontal">
                                             <ico:PackIconLucide Kind="Plug" Width="15" Height="15"
                                                                 VerticalAlignment="Center" Margin="0,0,7,0"/>
@@ -839,56 +927,8 @@
                         </Border>
                     </Grid>
 
-                    <!-- Settings -->
-                    <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,14,0,0" Padding="20,16"
-                            x:Name="SettingsCard">
-                        <StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
-                                <ico:PackIconLucide Kind="Settings2" Width="14" Height="14"
-                                                    Foreground="{StaticResource TxtLo}"
-                                                    VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                <TextBlock Text="تنظیمات شبکه" Style="{StaticResource SectionLabel}"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="16"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="پورت اتصال" Style="{StaticResource Lbl}" Margin="2,0,0,6"/>
-                                    <TextBox x:Name="PortBox" Text="42777" Style="{StaticResource Inp}"
-                                             FlowDirection="LeftToRight" FontFamily="Consolas" FontSize="13"
-                                             Height="38" LostFocus="PortBox_LostFocus" KeyDown="PortBox_KeyDown"/>
-                                </StackPanel>
-
-                                <StackPanel Grid.Column="2">
-                                    <Grid Margin="2,0,0,6">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="آداپتور شبکه" Style="{StaticResource Lbl}"
-                                                   VerticalAlignment="Center"/>
-                                        <Button Grid.Column="1" Style="{StaticResource Btn.IconSm}"
-                                                Width="22" Height="22" ToolTip="بروزرسانی آداپتورها"
-                                                Click="RefreshAdapters_Click">
-                                            <ico:PackIconLucide Kind="RefreshCw" Width="12" Height="12"/>
-                                        </Button>
-                                    </Grid>
-                                    <ComboBox x:Name="AdapterBox" Style="{StaticResource Cmb}"
-                                              Height="38" FlowDirection="LeftToRight"
-                                              SelectionChanged="AdapterBox_SelectionChanged"/>
-                                </StackPanel>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
                     <!-- Donate -->
-                    <Button Grid.Row="2" Style="{StaticResource Btn.Nav}"
+                    <Button Grid.Row="3" Style="{StaticResource Btn.Nav}"
                             Foreground="{StaticResource Danger}"
                             HorizontalAlignment="Center" Margin="0,10,0,0"
                             Click="NavDonate_Click">
@@ -983,17 +1023,24 @@
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
 
-                                <Button Grid.Column="0" x:Name="EmojiBtn" Style="{StaticResource Btn.IconSm}"
+                                <Button Grid.Column="0" x:Name="SendFileBtn" Style="{StaticResource Btn.IconSm}"
+                                        Width="38" Height="44" IsEnabled="False" ToolTip="ارسال فایل"
+                                        Click="SendFile_Click">
+                                    <ico:PackIconLucide Kind="Paperclip" Width="17" Height="17"/>
+                                </Button>
+
+                                <Button Grid.Column="1" x:Name="EmojiBtn" Style="{StaticResource Btn.IconSm}"
                                         Width="38" Height="44" ToolTip="ایموجی"
                                         Click="EmojiBtn_Click">
                                     <ico:PackIconLucide Kind="Smile" Width="19" Height="19"/>
                                 </Button>
 
-                                <TextBox Grid.Column="1" x:Name="ChatInput"
+                                <RichTextBox Grid.Column="2" x:Name="ChatInput"
                                          Background="Transparent" BorderThickness="0"
                                          Foreground="{StaticResource TxtHi}"
                                          CaretBrush="{StaticResource Accent}"
@@ -1001,10 +1048,22 @@
                                          SelectionOpacity="0.45"
                                          FontFamily="Vazir, Segoe UI, Tahoma"
                                          FontSize="13.5" Height="44" Padding="4,0,4,0"
-                                         VerticalContentAlignment="Center"
-                                         PreviewKeyDown="ChatInput_KeyDown"/>
+                                         AcceptsReturn="False"
+                                         HorizontalScrollBarVisibility="Disabled"
+                                         VerticalScrollBarVisibility="Disabled"
+                                         PreviewKeyDown="ChatInput_KeyDown"
+                                         TextChanged="ChatInput_TextChanged">
+                                    <RichTextBox.Template>
+                                        <ControlTemplate TargetType="RichTextBox">
+                                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
+                                                          VerticalAlignment="Center"
+                                                          HorizontalScrollBarVisibility="Disabled"
+                                                          VerticalScrollBarVisibility="Disabled"/>
+                                        </ControlTemplate>
+                                    </RichTextBox.Template>
+                                </RichTextBox>
 
-                                <Button Grid.Column="2" x:Name="SendBtn" Style="{StaticResource Btn.Icon}"
+                                <Button Grid.Column="3" x:Name="SendBtn" Style="{StaticResource Btn.Icon}"
                                         Width="34" Height="34" Margin="5"
                                         Background="{StaticResource AccentGrad}"
                                         ToolTip="ارسال" Click="SendChat_Click">
@@ -1023,44 +1082,12 @@
                 </Border>
             </Grid>
 
-            <!-- ── PROFILE SIDEBAR (left in RTL) — lobby only ── -->
-            <Grid Grid.Column="2" x:Name="ProfileSidebar" Width="186" Margin="16,0,0,0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <Border x:Name="UsernameSection" Grid.Row="0" Style="{StaticResource Panel}"
-                        Padding="14,14,14,13">
-                    <StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                            <ico:PackIconLucide Kind="CircleUserRound" Width="14" Height="14"
-                                                Foreground="{StaticResource TxtLo}"
-                                                VerticalAlignment="Center" Margin="0,0,7,0"/>
-                            <TextBlock Text="نام کاربری" Style="{StaticResource SectionLabel}"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <TextBox x:Name="UsernameBox" Text="کاربر" Style="{StaticResource Inp}" Height="38"/>
-                        <Button x:Name="SaveUsernameBtn" Style="{StaticResource Btn.Ghost}"
-                                Margin="0,8,0,0" HorizontalAlignment="Stretch" Height="34" Padding="0"
-                                Click="SaveUsername_Click">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <ico:PackIconLucide x:Name="SaveIcon" Kind="Save" Width="14" Height="14"
-                                                    VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                <TextBlock x:Name="SaveText" Text="ذخیره" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
-                </Border>
-
-            </Grid>
         </Grid>
 
         <!-- ══════════ TOAST OVERLAY ══════════ -->
         <StackPanel x:Name="ToastPanel" Grid.RowSpan="3"
-                    VerticalAlignment="Bottom" HorizontalAlignment="Left"
-                    Margin="0,0,20,20" Width="290"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Margin="0,-80,0,0" Width="320"
                     IsHitTestVisible="False"/>
 
         <!-- ══════════ MODAL OVERLAY ══════════ -->
@@ -1070,7 +1097,6 @@
                     BorderBrush="{StaticResource StrokeSoft}" BorderThickness="1"
                     Padding="30,28" MaxWidth="420"
                     VerticalAlignment="Center" HorizontalAlignment="Center"
-                    Effect="{StaticResource SoftShadow}"
                     MouseLeftButtonDown="ModalDialog_StopPropagation">
                 <StackPanel FlowDirection="RightToLeft">
                     <TextBlock x:Name="ModalTitle" FontSize="15.5" FontWeight="Bold"
@@ -1092,7 +1118,7 @@
                            HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Run Text="Virtual LAN Platform"/>
                     <Run Text=" · "/>
-                    <Run Text="v1.0.4" FontFamily="Consolas"/>
+                    <Run Text="v1.0.6" FontFamily="Consolas"/>
                 </TextBlock>
                 <Button Style="{StaticResource Btn.Nav}" HorizontalAlignment="Left"
                         Foreground="{StaticResource TxtLo}" Padding="8,4"

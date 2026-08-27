@@ -20,8 +20,10 @@ public sealed class FileManager : IDisposable
 {
     private readonly P2PManager _p2p;
 
-    private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingAccept = [];
-    private readonly Dictionary<string, IncomingState>              _incoming      = [];
+    // Touched from both the P2P network thread (OnP2PMessage) and the UI thread
+    // (AcceptTransfer/RejectTransfer are called from click handlers) — must be thread-safe.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<bool>> _pendingAccept = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IncomingState>              _incoming      = new();
 
     private const int ChunkSize = 32768; // 32 KB
 
@@ -39,7 +41,25 @@ public sealed class FileManager : IDisposable
     public FileManager(P2PManager p2p)
     {
         _p2p = p2p;
-        _p2p.MessageReceived += OnP2PMessage;
+        _p2p.MessageReceived  += OnP2PMessage;
+        _p2p.PeerDisconnected += OnPeerDisconnected;
+    }
+
+    /// <summary>Fails and cleans up any transfer tied to a peer that just dropped —
+    /// otherwise the receiving side is left with an open temp FileStream and a UI
+    /// card stuck at "receiving..." forever.</summary>
+    private void OnPeerDisconnected(int peerId, string reason)
+    {
+        foreach (var (id, state) in _incoming)
+        {
+            if (state.PeerId != peerId) continue;
+            if (_incoming.TryRemove(id, out var removed))
+            {
+                try { removed.TempFile?.Dispose(); } catch { }
+                if (removed.TempPath != null) try { File.Delete(removed.TempPath); } catch { }
+                TransferFailed?.Invoke(id, "طرف مقابل قطع شد");
+            }
+        }
     }
 
     // ── Send ──────────────────────────────────────────────────────────────────
@@ -69,63 +89,87 @@ public sealed class FileManager : IDisposable
 
         int totalChunks = (int)Math.Ceiling((double)size / ChunkSize);
 
-        StatusChanged?.Invoke($"در حال محاسبه SHA256: {name}");
-        string sha256 = await Task.Run(() =>
+        // The only caller (TestWindow.xaml.cs) fires this fire-and-forget via
+        // `_ = Task.Run(...)` — any unhandled exception here becomes an unobserved
+        // task exception, TransferFailed never fires, and the UI card is stuck at
+        // "در انتظار پذیرش..." forever with nothing telling the user it failed.
+        try
         {
-            using var fs = File.OpenRead(filePath);
-            return Convert.ToHexString(SHA256.HashData(fs)).ToLower();
-        });
-
-        // Broadcast FileInfo
-        string infoJson = JsonSerializer.Serialize(new
-        {
-            id, name, size, sha256, chunks = totalChunks
-        });
-
-        // Register TCS BEFORE sending FileInfo — prevents race condition on loopback
-        // where FileAccept arrives before TCS is registered, leaving it unset forever.
-        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pendingAccept[id] = tcs;
-
-        _p2p.SendToAll(MessageType.FileInfo, Encoding.UTF8.GetBytes(infoJson));
-        StatusChanged?.Invoke($"در انتظار پذیرش: {name}");
-
-        bool accepted;
-        try   { accepted = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(60)); }
-        catch { accepted = false; }
-        finally { _pendingAccept.Remove(id); }
-
-        if (!accepted)
-        {
-            TransferFailed?.Invoke(id, "طرف مقابل فایل را نپذیرفت");
-            StatusChanged?.Invoke("ارسال فایل لغو شد");
-            return;
-        }
-
-        // Stream chunks
-        StatusChanged?.Invoke($"در حال ارسال: {name}  (0 / {totalChunks})");
-        await Task.Run(async () =>
-        {
-            using var fs  = File.OpenRead(filePath);
-            byte[] buf    = new byte[ChunkSize];
-            for (int i = 0; i < totalChunks; i++)
+            StatusChanged?.Invoke($"در حال محاسبه SHA256: {name}");
+            string sha256 = await Task.Run(() =>
             {
-                int read = await fs.ReadAsync(buf.AsMemory(0, ChunkSize));
-                if (read == 0) break;
+                using var fs = File.OpenRead(filePath);
+                return Convert.ToHexString(SHA256.HashData(fs)).ToLower();
+            });
 
-                byte[] packet = BuildChunkPacket(id, i, buf, read);
-                _p2p.SendToAll(MessageType.FileChunk, packet, DeliveryMethod.ReliableOrdered);
-                TransferProgress?.Invoke(id, i + 1, totalChunks);
+            // Broadcast FileInfo
+            string infoJson = JsonSerializer.Serialize(new
+            {
+                id, name, size, sha256, chunks = totalChunks
+            });
 
-                if (i % 50 == 0)
-                    StatusChanged?.Invoke($"ارسال: {name}  ({i + 1} / {totalChunks})");
+            // Register TCS BEFORE sending FileInfo — prevents race condition on loopback
+            // where FileAccept arrives before TCS is registered, leaving it unset forever.
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingAccept[id] = tcs;
 
-                if (i % 100 == 0) await Task.Yield();
+            _p2p.SendToAll(MessageType.FileInfo, Encoding.UTF8.GetBytes(infoJson));
+            StatusChanged?.Invoke($"در انتظار پذیرش: {name}");
+
+            bool accepted;
+            try   { accepted = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(60)); }
+            catch { accepted = false; }
+            finally { _pendingAccept.TryRemove(id, out _); }
+
+            if (!accepted)
+            {
+                TransferFailed?.Invoke(id, "طرف مقابل فایل را نپذیرفت");
+                StatusChanged?.Invoke("ارسال فایل لغو شد");
+                return;
             }
-        });
 
-        StatusChanged?.Invoke($"ارسال کامل شد: {name}");
-        TransferComplete?.Invoke(id, filePath);
+            // Stream chunks
+            StatusChanged?.Invoke($"در حال ارسال: {name}  (0 / {totalChunks})");
+            int sentChunks = 0;
+            await Task.Run(async () =>
+            {
+                using var fs  = File.OpenRead(filePath);
+                byte[] buf    = new byte[ChunkSize];
+                for (int i = 0; i < totalChunks; i++)
+                {
+                    int read = await fs.ReadAsync(buf.AsMemory(0, ChunkSize));
+                    if (read == 0) break;
+
+                    byte[] packet = BuildChunkPacket(id, i, buf, read);
+                    _p2p.SendToAll(MessageType.FileChunk, packet, DeliveryMethod.ReliableOrdered);
+                    sentChunks = i + 1;
+                    TransferProgress?.Invoke(id, sentChunks, totalChunks);
+
+                    if (i % 50 == 0)
+                        StatusChanged?.Invoke($"ارسال: {name}  ({i + 1} / {totalChunks})");
+
+                    if (i % 100 == 0) await Task.Yield();
+                }
+            });
+
+            // The file shrank/became unreadable mid-send: the receiver is still waiting
+            // for the original chunk count and will hang forever if we claim success.
+            if (sentChunks < totalChunks)
+            {
+                TransferFailed?.Invoke(id, "فایل در حین ارسال ناقص شد");
+                StatusChanged?.Invoke($"ارسال ناموفق: {name}");
+                return;
+            }
+
+            StatusChanged?.Invoke($"ارسال کامل شد: {name}");
+            TransferComplete?.Invoke(id, filePath);
+        }
+        catch (Exception ex)
+        {
+            _pendingAccept.TryRemove(id, out _);
+            TransferFailed?.Invoke(id, ex.Message);
+            StatusChanged?.Invoke($"ارسال ناموفق: {name}");
+        }
     }
 
     // ── Accept / Reject ───────────────────────────────────────────────────────
@@ -152,15 +196,14 @@ public sealed class FileManager : IDisposable
         }
         catch (Exception ex)
         {
-            _incoming.Remove(id);
+            _incoming.TryRemove(id, out _);
             TransferFailed?.Invoke(id, ex.Message);
         }
     }
 
     public void RejectTransfer(string id)
     {
-        if (!_incoming.TryGetValue(id, out var state)) return;
-        _incoming.Remove(id);
+        if (!_incoming.TryRemove(id, out var state)) return;
         string resp = JsonSerializer.Serialize(new { id, ok = false });
         _p2p.SendToPeer(state.PeerId, MessageType.FileAccept,
             Encoding.UTF8.GetBytes(resp));
@@ -191,12 +234,34 @@ public sealed class FileManager : IDisposable
             int    chunks = root.GetProperty("chunks").GetInt32();
             string sha256 = root.GetProperty("sha256").GetString()!;
 
+            // id and name come from another peer's machine — never trust them as path
+            // components. A rooted or ".."-bearing name would otherwise let a peer make
+            // us write/overwrite a file anywhere Path.Combine lets it escape to.
+            if (!IsSafeId(id)) return;
+            name = Path.GetFileName(name);
+            if (name.Length == 0) return;
+
+            // A reused id for an in-progress transfer would otherwise leak the old
+            // temp FileStream/file, orphaned once this entry is overwritten.
+            if (_incoming.TryRemove(id, out var stale))
+            {
+                try { stale.TempFile?.Dispose(); } catch { }
+                if (stale.TempPath != null) try { File.Delete(stale.TempPath); } catch { }
+            }
+
             _incoming[id] = new IncomingState(id, name, size, chunks, sha256, peerId,
                 null, null, null, 0);
             IncomingFile?.Invoke(new FileTransferInfo(id, name, size, peerId));
         }
         catch { }
     }
+
+    // The wire format for FileChunk fixes the id at exactly 12 ASCII bytes
+    // (BuildChunkPacket / HandleFileChunk) — an id longer than that would get
+    // silently truncated on the chunk side, never matching the key stored here,
+    // and the transfer would hang forever with chunks dropped one by one.
+    private static bool IsSafeId(string id)
+        => id.Length is > 0 and <= 12 && id.All(c => char.IsLetterOrDigit(c) || c is '-' or '_');
 
     private void HandleFileAccept(byte[] data)
     {
@@ -234,7 +299,10 @@ public sealed class FileManager : IDisposable
                     $"دریافت: {state.Name}  ({received} / {state.TotalChunks})");
 
             if (received >= state.TotalChunks)
-                FinalizeTransfer(id, state);
+                // SHA256-hashing and moving the whole file is too slow to run inline —
+                // this handler runs on the P2P poll thread, which also drives voice
+                // playback; blocking it here would stall audio for the whole session.
+                _ = Task.Run(() => FinalizeTransfer(id, state));
         }
         catch { }
     }
@@ -256,7 +324,7 @@ public sealed class FileManager : IDisposable
                 if (computed != state.ExpectedSha256)
                 {
                     try { File.Delete(tempPath); } catch { }
-                    _incoming.Remove(id);
+                    _incoming.TryRemove(id, out _);
                     TransferFailed?.Invoke(id, $"خطای Checksum — فایل آسیب دیده: {state.Name}");
                     return;
                 }
@@ -266,12 +334,12 @@ public sealed class FileManager : IDisposable
             if (File.Exists(state.SavePath!)) File.Delete(state.SavePath!);
             File.Move(tempPath, state.SavePath!);
 
-            _incoming.Remove(id);
+            _incoming.TryRemove(id, out _);
             TransferComplete?.Invoke(id, state.SavePath!);
         }
         catch (Exception ex)
         {
-            _incoming.Remove(id);
+            _incoming.TryRemove(id, out _);
             if (state.TempPath != null) try { File.Delete(state.TempPath); } catch { }
             TransferFailed?.Invoke(id, ex.Message);
         }

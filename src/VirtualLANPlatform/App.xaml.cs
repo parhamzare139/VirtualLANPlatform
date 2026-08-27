@@ -14,7 +14,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        EnsureFirewallRule();
+        _ = EnsureFirewallRuleAsync();
         UpdateService.CheckOnStartup();
 
         DispatcherUnhandledException += (_, args) =>
@@ -27,7 +27,12 @@ public partial class App : Application
 
     // Add firewall rule so P2P UDP traffic is not blocked.
     // App runs as Administrator so this succeeds without a UAC prompt.
-    private static void EnsureFirewallRule()
+    //
+    // Takes the actual port in use: called once at startup for the default port, and
+    // again from CreateRoom_Click with whatever port the user actually configured —
+    // a rule hardcoded to the default port would otherwise leave guests unable to
+    // reach a host that changed their port, with no indication why the connection fails.
+    public static Task EnsureFirewallRuleAsync(ushort port = 42777) => Task.Run(() =>
     {
         try
         {
@@ -36,11 +41,11 @@ public partial class App : Application
             RunNetsh(
                 "advfirewall firewall add rule " +
                 "name=\"VirtualLANPlatform UDP\" " +
-                "protocol=UDP dir=in localport=42777 " +
+                $"protocol=UDP dir=in localport={port} " +
                 "action=allow profile=any");
         }
         catch { /* non-fatal — app still works on LANs that don't need this */ }
-    }
+    });
 
     private static void RunNetsh(string args)
     {

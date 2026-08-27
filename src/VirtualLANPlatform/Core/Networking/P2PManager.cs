@@ -35,13 +35,16 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
     public bool IsEncrypted(int peerId) => _sessionKeys.ContainsKey(peerId);
 
-    private readonly Dictionary<int, PeerInfo>  _peers            = [];
-    private readonly Dictionary<string, string> _pendingUsernames = [];
-    private readonly Dictionary<int, byte[]>    _sessionKeys      = [];
+    // Written on the dedicated P2P-Poll thread (every LiteNetLib callback runs there)
+    // and read from the UI thread via PeerCount/IsEncrypted — must be thread-safe.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, PeerInfo>  _peers            = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _pendingUsernames = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]>    _sessionKeys      = new();
     private readonly TransportLayer             _transport        = new();
     private readonly CryptoEngine               _crypto           = new();
     private NetManager?               _net;
     private CancellationTokenSource?  _pollCts;
+    private Thread?                   _pollThread;
 
     // ── Host ──────────────────────────────────────────────────────────────────
 
@@ -176,9 +179,20 @@ public sealed class P2PManager : INetEventListener, IDisposable
     {
         if (Role == PeerRole.Host)
         {
-            string username = request.Data.AvailableBytes > 0
-                ? request.Data.GetString()
-                : $"Guest_{request.RemoteEndPoint}";
+            string username;
+            try
+            {
+                // A malformed/hostile connect request (not a valid length-prefixed
+                // string) would otherwise throw here and, uncaught, kill the poll thread.
+                username = request.Data.AvailableBytes > 0
+                    ? request.Data.GetString()
+                    : $"Guest_{request.RemoteEndPoint}";
+            }
+            catch
+            {
+                request.Reject();
+                return;
+            }
 
             string? rejection = ValidateGuest?.Invoke(username, request.RemoteEndPoint);
             if (rejection != null)
@@ -202,7 +216,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
         string username = Role == PeerRole.Host
             ? (_pendingUsernames.TryGetValue(epKey, out string? u) ? u : $"Guest_{peer.Id}")
             : "Host";
-        _pendingUsernames.Remove(epKey);
+        _pendingUsernames.TryRemove(epKey, out _);
 
         var info = new PeerInfo(peer.Id, username, peer.EndPoint, DateTime.UtcNow);
         _peers[peer.Id] = info;
@@ -215,8 +229,8 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
     public void OnPeerDisconnected(NetPeer peer, DisconnectInfo di)
     {
-        _peers.Remove(peer.Id);
-        _sessionKeys.Remove(peer.Id);
+        _peers.TryRemove(peer.Id, out _);
+        _sessionKeys.TryRemove(peer.Id, out _);
 
         if (di.Reason == DisconnectReason.ConnectionRejected)
         {
@@ -326,25 +340,44 @@ public sealed class P2PManager : INetEventListener, IDisposable
     {
         // Reconnecting as a guest builds a fresh NetManager; without this the old
         // thread would survive, poll the new manager too, and leak a 1 ms timer.
+        // Joining (not just signaling cancellation) matters here: StartPollLoop is
+        // always called right after a new NetManager is assigned to _net, so if the
+        // old thread is still mid-iteration it would read the *new* _net on its next
+        // pass and call PollEvents() on it concurrently with the new poll thread —
+        // LiteNetLib's NetManager isn't designed for concurrent PollEvents() calls.
         _pollCts?.Cancel();
+        _pollThread?.Join(500);
 
         _pollCts = new CancellationTokenSource();
         var token = _pollCts.Token;
 
-        var thread = new Thread(() =>
+        _pollThread = new Thread(() =>
         {
             bool raised = false;
             try { raised = TimeBeginPeriod(1) == 0; } catch { }
 
             try
             {
-                while (!token.IsCancellationRequested && _net != null)
+                while (!token.IsCancellationRequested)
                 {
-                    _net.PollEvents();
+                    // Snapshot the field once — reading it twice (a null-check then a
+                    // call) races against another thread setting _net = null between
+                    // the two, which throws NullReferenceException on this thread.
+                    var net = _net;
+                    if (net == null) break;
+
+                    try { net.PollEvents(); }
+                    catch (ObjectDisposedException) { break; }
+                    // PollEvents synchronously invokes every INetEventListener callback
+                    // (OnPeerConnected, OnConnectionRequest, OnNetworkReceive, ...). An
+                    // unhandled exception on this background thread would otherwise
+                    // terminate the whole process — one bad packet/callback shouldn't
+                    // kill the entire P2P session.
+                    catch { }
+
                     Thread.Sleep(1);
                 }
             }
-            catch (ObjectDisposedException) { }
             finally
             {
                 if (raised) { try { TimeEndPeriod(1); } catch { } }
@@ -355,7 +388,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
             Priority     = ThreadPriority.AboveNormal,
             Name         = "P2P-Poll"
         };
-        thread.Start();
+        _pollThread.Start();
     }
 
     private static NetDataWriter WrapPayload(byte[] data)
@@ -379,6 +412,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
     public void Dispose()
     {
         Shutdown();
+        _pollThread?.Join(500);
         _crypto.Dispose();
         _pollCts?.Dispose();
     }

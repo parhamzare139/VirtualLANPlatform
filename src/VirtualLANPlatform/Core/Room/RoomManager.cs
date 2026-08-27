@@ -243,6 +243,7 @@ public sealed class RoomManager : IDisposable
                     ModerationReceived?.Invoke(cmd.Op, cmd.On);
                 break;
             }
+
         }
     }
 

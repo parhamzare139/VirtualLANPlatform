@@ -25,8 +25,16 @@ public sealed class VoiceManager : IDisposable
     private IWaveProvider?        _captureConverted; // after resample → 48 kHz mono 16-bit
 
     private OpusEncoder? _encoder;
-    private readonly Dictionary<int, OpusDecoder> _decoders = [];
-    private readonly Dictionary<int, (BufferedWaveProvider Buffer, WaveOutEvent Out)> _outputs = [];
+    // Written from the P2P poll thread (OnPeerConnected/OnPeerDisconnected, OnP2PMessage)
+    // and read from the UI thread (ToggleSpeaker) — must be thread-safe.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, OpusDecoder> _decoders = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (BufferedWaveProvider Buffer, WaveOutEvent Out)> _outputs = new();
+
+    // Guards _waveIn/_encoder/_captureBuffer/_captureConverted/_captureTail* — these are
+    // touched both from the UI thread (ToggleMic/SetForceMuted) and the P2P poll thread
+    // (OnPeerConnected auto-starts capture) without this, two concurrent InitCapture()
+    // calls could open two WASAPI devices and corrupt the shared capture-tail buffer.
+    private readonly object _captureLock = new();
 
     private byte[] _captureTail    = [];
     private int    _captureTailLen;
@@ -83,7 +91,16 @@ public sealed class VoiceManager : IDisposable
     {
         if (_isForceMuted) { StatusChanged?.Invoke("میکروفون توسط میزبان قفل شده"); return; }
         _isMicActive = !_isMicActive;
-        if (_isMicActive && _waveIn == null) InitCapture();
+
+        lock (_captureLock)
+        {
+            // Actually stop the physical device on mute — otherwise Windows' mic-in-use
+            // indicator (and AEC/AGC pipeline) keeps running the whole call even while
+            // the user believes the mic is off.
+            if (_isMicActive) { if (_waveIn == null) InitCapture(); }
+            else StopCapture();
+        }
+
         MicChanged?.Invoke(_isMicActive);
         StatusChanged?.Invoke(_isMicActive ? "میکروفون فعال" : "میکروفون خاموش");
     }
@@ -102,6 +119,13 @@ public sealed class VoiceManager : IDisposable
     {
         if (_isForceMuted == muted) return;
         _isForceMuted = muted;
+
+        lock (_captureLock)
+        {
+            if (muted) StopCapture();
+            else if (_isMicActive && _waveIn == null) InitCapture();
+        }
+
         MicChanged?.Invoke(IsMicActive);
         StatusChanged?.Invoke(muted ? "میزبان میکروفون شما را بست" : "میزبان میکروفون شما را باز کرد");
     }
@@ -128,20 +152,19 @@ public sealed class VoiceManager : IDisposable
         if (!_isMicActive)
         {
             _isMicActive = true;
-            if (_waveIn == null) InitCapture();
+            lock (_captureLock) { if (_waveIn == null) InitCapture(); }
             MicChanged?.Invoke(IsMicActive);
         }
     }
 
-    private void OnPeerDisconnected(int peerId, string _)
+    private void OnPeerDisconnected(int peerId, string reason)
     {
-        if (_outputs.TryGetValue(peerId, out var pair))
+        if (_outputs.TryRemove(peerId, out var pair))
         {
             try { pair.Out.Stop(); } catch { }
             pair.Out.Dispose();
-            _outputs.Remove(peerId);
         }
-        _decoders.Remove(peerId);
+        _decoders.TryRemove(peerId, out _);
     }
 
     // ── Capture ───────────────────────────────────────────────────────────────
@@ -204,38 +227,65 @@ public sealed class VoiceManager : IDisposable
         }
     }
 
+    /// <summary>Must be called under <see cref="_captureLock"/>. Stops and releases the
+    /// physical capture device so mute actually mutes it (mic-in-use indicator, AEC/AGC),
+    /// instead of just discarding frames while the device keeps recording.</summary>
+    private void StopCapture()
+    {
+        if (_waveIn == null) return;
+        try { _waveIn.StopRecording(); } catch { }
+        try { _waveIn.Dispose(); } catch { }
+        _waveIn           = null;
+        _captureBuffer    = null;
+        _captureConverted = null;
+        _captureTailLen   = 0;
+        _encoder          = null;
+    }
+
     // WASAPI path: native format → conversion chain → frame accumulator → encode
+    //
+    // This callback runs on NAudio's own capture thread, which never takes
+    // _captureLock. StopCapture() (always called under _captureLock from the UI
+    // thread via ToggleMic/SetForceMuted, or from Reset/Dispose) nulls _encoder/
+    // _captureBuffer/_captureConverted — snapshot each field once into a local so
+    // a StopCapture() landing mid-callback can't null it out between a check and
+    // a use, which would otherwise NullReferenceException on this thread and,
+    // uncaught, take the whole process down.
     private void OnWasapiDataAvailable(object? sender, WaveInEventArgs e)
     {
-        if (!IsMicActive || _encoder == null || !_p2p.IsRunning) return;
-        if (_captureBuffer == null || _captureConverted == null) return;
+        var encoder   = _encoder;
+        var buffer    = _captureBuffer;
+        var converted = _captureConverted;
+        if (!IsMicActive || encoder == null || !_p2p.IsRunning) return;
+        if (buffer == null || converted == null) return;
 
-        _captureBuffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
+        buffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
 
         var readBuf = new byte[FrameBytes * 4];
-        int read = _captureConverted.Read(readBuf, 0, readBuf.Length);
+        int read = converted.Read(readBuf, 0, readBuf.Length);
         if (read <= 0) return;
 
         int newLen = _captureTailLen + read;
         if (_captureTail.Length < newLen) Array.Resize(ref _captureTail, Math.Max(newLen, FrameBytes * 4));
         Buffer.BlockCopy(readBuf, 0, _captureTail, _captureTailLen, read);
         _captureTailLen = newLen;
-        EncodeAndSend();
+        EncodeAndSend(encoder);
     }
 
     // WinMM path: already 48 kHz mono 16-bit, accumulate directly
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
-        if (!IsMicActive || _encoder == null || !_p2p.IsRunning) { _captureTailLen = 0; return; }
+        var encoder = _encoder;
+        if (!IsMicActive || encoder == null || !_p2p.IsRunning) { _captureTailLen = 0; return; }
 
         int newLen = _captureTailLen + e.BytesRecorded;
         if (_captureTail.Length < newLen) Array.Resize(ref _captureTail, Math.Max(newLen, FrameBytes * 4));
         Buffer.BlockCopy(e.Buffer, 0, _captureTail, _captureTailLen, e.BytesRecorded);
         _captureTailLen = newLen;
-        EncodeAndSend();
+        EncodeAndSend(encoder);
     }
 
-    private void EncodeAndSend()
+    private void EncodeAndSend(OpusEncoder encoder)
     {
         int offset  = 0;
         var pcm     = new short[FrameSamples];
@@ -253,7 +303,7 @@ public sealed class VoiceManager : IDisposable
             try
             {
 #pragma warning disable CS0618
-                int len = _encoder!.Encode(pcm, 0, FrameSamples, encoded, 0, encoded.Length);
+                int len = encoder.Encode(pcm, 0, FrameSamples, encoded, 0, encoded.Length);
 #pragma warning restore CS0618
                 if (len > 0)
                     _p2p.SendToAll(MessageType.VoiceData, encoded[..len], DeliveryMethod.Unreliable);
@@ -322,7 +372,18 @@ public sealed class VoiceManager : IDisposable
         _isMicActive    = false;
         _isSpeakerMuted = false;
         _isForceMuted   = false;
-        _captureTailLen = 0;
+        lock (_captureLock) { StopCapture(); }
+
+        // Release the previous room's per-peer playback devices — otherwise every
+        // join/leave cycle leaks a WaveOutEvent (open WASAPI render handle) per peer.
+        foreach (var (_, (_, waveOut)) in _outputs)
+        {
+            try { waveOut.Stop(); } catch { }
+            waveOut.Dispose();
+        }
+        _outputs.Clear();
+        _decoders.Clear();
+
         MicChanged?.Invoke(false);
         SpeakerChanged?.Invoke(true);
     }
@@ -338,10 +399,7 @@ public sealed class VoiceManager : IDisposable
         _p2p.PeerConnected    -= OnPeerConnected;
         _p2p.PeerDisconnected -= OnPeerDisconnected;
 
-        try { _waveIn?.StopRecording(); } catch { }
-        _waveIn?.Dispose();
-        _captureBuffer    = null;
-        _captureConverted = null;
+        lock (_captureLock) { StopCapture(); }
 
         foreach (var (_, (_, waveOut)) in _outputs)
         {

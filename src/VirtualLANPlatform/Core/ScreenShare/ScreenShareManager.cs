@@ -19,6 +19,12 @@ public sealed class ScreenShareManager : IDisposable
     private bool   _disposed;
     private IntPtr _windowHandle;
 
+    // Guards against overlapping Capture() calls: the timer fires on a fixed period
+    // regardless of how long the previous tick took, and the adaptive-quality fields
+    // below are read/written with no lock — an overlap would corrupt them and, on the
+    // slow-path, actively compound the very pile-up AdaptQuality exists to relieve.
+    private int _capturing;
+
     // Adaptive quality state
     private int _jpegQuality = 75;
     private int _targetFps   = 10;
@@ -87,35 +93,58 @@ public sealed class ScreenShareManager : IDisposable
     private void Capture()
     {
         if (!IsSharing) return;
+        if (System.Threading.Interlocked.CompareExchange(ref _capturing, 1, 0) != 0) return;
+        try
+        {
+            CaptureCore();
+        }
+        finally
+        {
+            _capturing = 0;
+        }
+    }
+
+    private void CaptureCore()
+    {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             Bitmap bmp;
+            Rectangle screenBounds = default;
             if (_windowHandle != IntPtr.Zero)
             {
                 if (!GetWindowRect(_windowHandle, out RECT rect)) return;
                 int w = rect.Right  - rect.Left;
                 int h = rect.Bottom - rect.Top;
                 if (w <= 0 || h <= 0 || w > 8000 || h > 8000) return;
-
                 bmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
-                using (var g = Graphics.FromImage(bmp))
-                {
-                    IntPtr hdc = g.GetHdc();
-                    PrintWindow(_windowHandle, hdc, 2); // PW_RENDERFULLCONTENT
-                    g.ReleaseHdc(hdc);
-                }
             }
             else
             {
-                var bounds = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
-                bmp = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppRgb);
-                using (var g = Graphics.FromImage(bmp))
-                    g.CopyFromScreen(bounds.X, bounds.Y, 0, 0, bounds.Size);
+                screenBounds = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
+                bmp = new Bitmap(screenBounds.Width, screenBounds.Height, PixelFormat.Format32bppRgb);
             }
 
+            // bmp is wrapped in `using` immediately on allocation — GetHdc/PrintWindow/
+            // ReleaseHdc and CopyFromScreen below can all throw, and this way the GDI
+            // handle is still released even if one of them does, instead of leaking it
+            // (repeatable, e.g. every failed capture attempt against a locked desktop).
             using (bmp)
             {
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    if (_windowHandle != IntPtr.Zero)
+                    {
+                        IntPtr hdc = g.GetHdc();
+                        PrintWindow(_windowHandle, hdc, 2); // PW_RENDERFULLCONTENT
+                        g.ReleaseHdc(hdc);
+                    }
+                    else
+                    {
+                        g.CopyFromScreen(screenBounds.X, screenBounds.Y, 0, 0, screenBounds.Size);
+                    }
+                }
+
                 // Reduce max width at lower quality to save bandwidth
                 double maxW = _jpegQuality >= 65 ? 1920.0 : _jpegQuality >= 45 ? 1280.0 : 800.0;
                 double scale = Math.Min(1.0, maxW / bmp.Width);

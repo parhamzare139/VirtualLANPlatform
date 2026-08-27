@@ -30,6 +30,7 @@ using VirtualLANPlatform.Core.ScreenShare;
 using VirtualLANPlatform.Core.Services;
 using VirtualLANPlatform.Core.Storage;
 using VirtualLANPlatform.Core.Voice;
+using VirtualLANPlatform.UI.Emoji;
 
 namespace VirtualLANPlatform.UI.Views;
 
@@ -108,7 +109,6 @@ public partial class TestWindow : Window
         LoadSavedVolume();
         LoadAdapters();
         LoadWindowIcon();
-
         EmojiPickerCtl.Picked += InsertEmoji;
 
         // Catch hyperlink navigations bubbled from any RichTextBox in ChatList
@@ -146,13 +146,24 @@ public partial class TestWindow : Window
 
     private void LoadSavedUsername()
     {
-        if (Load(UsernamePath) is { Length: > 0 } saved) UsernameBox.Text = saved;
+        if (Load(UsernamePath) is { Length: > 0 } saved)
+            UsernameBox.Text = saved;
     }
 
     private void LoadSavedPort()
     {
-        if (Load(PortPath) is { } saved && ushort.TryParse(saved, out ushort p) && p > 0)
+        if (Load(PortPath) is { } saved && ushort.TryParse(saved, out ushort p) && p >= 1000)
             PortBox.Text = saved;
+    }
+
+    private void NetSettingsToggle_Click(object sender, MouseButtonEventArgs e)
+    {
+        bool opening = NetSettingsPanel.Visibility != Visibility.Visible;
+        NetSettingsPanel.Visibility = opening ? Visibility.Visible : Visibility.Collapsed;
+
+        var anim = new DoubleAnimation(opening ? 180 : 0, TimeSpan.FromMilliseconds(180))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        ChevronRotate.BeginAnimation(RotateTransform.AngleProperty, anim);
     }
 
     private void LoadSavedVolume()
@@ -180,12 +191,59 @@ public partial class TestWindow : Window
     private void SaveVolume()
         => Save(VolumePath, $"{(int)MicSlider.Value},{(int)SpeakerSlider.Value}");
 
-    private void PortBox_LostFocus(object sender, RoutedEventArgs e) => Save(PortPath, GetPort().ToString());
+    private void PortBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+        => e.Handled = !e.Text.All(char.IsDigit);
+
+    private void PortBox_Pasting(object sender, DataObjectPastingEventArgs e)
+    {
+        if (e.DataObject.GetDataPresent(System.Windows.DataFormats.Text))
+        {
+            string text = e.DataObject.GetData(System.Windows.DataFormats.Text) as string ?? "";
+            if (!text.All(char.IsDigit)) e.CancelCommand();
+        }
+        else e.CancelCommand();
+    }
+
+    private void PortBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (!ushort.TryParse(PortBox.Text.Trim(), out ushort p) || p < 1000)
+        {
+            ShowToast("پورت نامعتبر", "شماره پورت باید حداقل ۴ رقم باشد", isError: true);
+            PortBox.Text = "42777";
+            Save(PortPath, "42777");
+        }
+        else Save(PortPath, p.ToString());
+    }
 
     private void PortBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
-        Save(PortPath, GetPort().ToString());
+        PortBox_LostFocus(sender, e);
+        e.Handled = true;
+    }
+
+    // ── Join IP field ────────────────────────────────────────────────────────
+
+    private void JoinCodeBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+        => e.Handled = !e.Text.All(c => char.IsDigit(c) || c == '.');
+
+    private void JoinCodeBox_Pasting(object sender, DataObjectPastingEventArgs e)
+    {
+        if (e.DataObject.GetDataPresent(System.Windows.DataFormats.Text))
+        {
+            string text = e.DataObject.GetData(System.Windows.DataFormats.Text) as string ?? "";
+            if (!text.All(c => char.IsDigit(c) || c == '.')) e.CancelCommand();
+        }
+        else e.CancelCommand();
+    }
+
+    private void JoinCodeBox_LostFocus(object sender, RoutedEventArgs e)
+        => JoinCodeBox.Text = JoinCodeBox.Text.Trim();
+
+    private void JoinCodeBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        JoinCodeBox_LostFocus(sender, e);
         e.Handled = true;
     }
 
@@ -309,9 +367,7 @@ public partial class TestWindow : Window
             Padding         = new Thickness(14, 10, 14, 10),
             Margin          = new Thickness(0, 0, 0, 6),
             Opacity         = 0,
-            Child           = panel,
-            Effect          = new System.Windows.Media.Effects.DropShadowEffect
-                              { BlurRadius = 18, ShadowDepth = 2, Opacity = 0.45 }
+            Child           = panel
         };
 
         ToastPanel.Children.Insert(0, toast);
@@ -429,9 +485,7 @@ public partial class TestWindow : Window
         HostIpLabel.Text       = isHost ? ipPort : "";
         HostIpPanel.Visibility = isHost ? Visibility.Visible : Visibility.Collapsed;
 
-        // The profile column is lobby-only; giving its width to the chat in a
-        // room is worth more than an idle username box.
-        ProfileSidebar.Visibility = Visibility.Collapsed;
+        LobbyTopBar.Visibility = Visibility.Collapsed;
         VoiceStrip.Visibility     = Visibility.Visible;
         ChatPanel.Visibility      = Visibility.Visible;
         RightSidebar.Visibility   = Visibility.Visible;
@@ -450,8 +504,8 @@ public partial class TestWindow : Window
         RoomHeaderPanel.Visibility  = Visibility.Collapsed;
         Footer.Visibility           = Visibility.Visible;
 
-        ProfileSidebar.Visibility = Visibility.Visible;
-        VoiceStrip.Visibility     = Visibility.Collapsed;
+        LobbyTopBar.Visibility = Visibility.Visible;
+        VoiceStrip.Visibility  = Visibility.Collapsed;
         ChatPanel.Visibility      = Visibility.Collapsed;
         RightSidebar.Visibility   = Visibility.Collapsed;
 
@@ -720,8 +774,14 @@ public partial class TestWindow : Window
 
         try
         {
+            ushort port = GetPort();
+            // The startup firewall rule only opens the default port — re-apply it for
+            // whatever port the user actually configured, or a guest can't reach a
+            // host that changed it, with nothing telling either side why.
+            await VirtualLANPlatform.App.EnsureFirewallRuleAsync(port);
+
             var (ok, localIp, _) = await _room.CreateRoomAsync(
-                username, port: GetPort(), localIp: GetSelectedAdapterIP(), ct: _opCts!.Token);
+                username, port: port, localIp: GetSelectedAdapterIP(), ct: _opCts!.Token);
 
             if (ok)
             {
@@ -801,6 +861,20 @@ public partial class TestWindow : Window
             SaveUsernameBtn.ClearValue(ForegroundProperty);
         }
         catch (OperationCanceledException) { }
+    }
+
+    private void UsernameBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        string username = UsernameBox.Text.Trim();
+        if (username.Length == 0) return;
+        Save(UsernamePath, username);
+    }
+
+    private void UsernameBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        SaveUsername_Click(sender, e);
+        e.Handled = true;
     }
 
     private async void HostIpBorder_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -1011,7 +1085,26 @@ public partial class TestWindow : Window
         SetActiveTab("files");
         FileList.ScrollIntoView(notif);
 
-        _ = Task.Run(() => _file.SendFileAsync(path, transferId));
+        _ = Task.Run(async () =>
+        {
+            try { await _file.SendFileAsync(path, transferId); }
+            catch (Exception ex)
+            {
+                // SendFileAsync already reports failures via TransferFailed, but guard
+                // against anything it throws before reaching its own try block too —
+                // otherwise this fire-and-forget task would fault silently and the
+                // card would stay stuck at "در انتظار پذیرش..." forever.
+                Dispatch(() =>
+                {
+                    if (_fileNotifs.TryGetValue(transferId, out var n))
+                    {
+                        n.Status      = $"✗ ارسال ناموفق: {ex.Message}";
+                        n.CanDownload = false;
+                        _fileNotifs.Remove(transferId);
+                    }
+                });
+            }
+        });
     }
 
     private void DownloadFile_Click(object sender, RoutedEventArgs e)
@@ -1043,7 +1136,7 @@ public partial class TestWindow : Window
 
     private void DoSendChat()
     {
-        string text = ChatInput.Text.Trim();
+        string text = EmojiComposer.GetPlainText(ChatInput).Trim();
         if (text.Length == 0) return;
 
         if (!_p2p.IsRunning)
@@ -1067,7 +1160,7 @@ public partial class TestWindow : Window
         {
             _chat.SendToAll(text, _replyTarget);
         }
-        ChatInput.Clear();
+        EmojiComposer.Clear(ChatInput);
         ClearReply();
     }
 
@@ -1245,20 +1338,16 @@ public partial class TestWindow : Window
         EmojiPopup.IsOpen = !EmojiPopup.IsOpen;
     }
 
-    private void InsertEmoji(string emoji)
+    private void InsertEmoji(string emoji) => EmojiComposer.InsertAtCaret(ChatInput, emoji);
+
+    private bool _suppressChatInputChanged;
+
+    private void ChatInput_TextChanged(object sender, TextChangedEventArgs e)
     {
-        string text = ChatInput.Text;
-
-        // Emoji.Wpf.TextBox delegates editing to a RichTextBox inside its template,
-        // so the shell's caret index isn't always live. Treat 0 as "no caret info"
-        // and append, which is what a composer should do anyway.
-        int caret = ChatInput.SelectionStart;
-        if (caret <= 0 || caret > text.Length) caret = text.Length;
-
-        ChatInput.Text = text.Insert(caret, emoji);
-        ChatInput.SelectionStart  = caret + emoji.Length;
-        ChatInput.SelectionLength = 0;
-        ChatInput.Focus();
+        if (_suppressChatInputChanged) return;
+        _suppressChatInputChanged = true;
+        try { EmojiComposer.TryConvertNearCaret(ChatInput); }
+        finally { _suppressChatInputChanged = false; }
     }
 
     // ── Screen share ──────────────────────────────────────────────────────────
@@ -1427,13 +1516,11 @@ public partial class TestWindow : Window
             bool isSelf = m.Username == _room.MyUsername;
             MemberList.Items.Add(new MemberItem
             {
-                Username    = m.Username,
-                IsSelf      = isSelf,
-                // Only the host can tell who the host is — a guest's member list
-                // arrives over the handshake with no peer ids attached.
-                IsHostRole  = _room.IsHost && m.PeerId == -1,
-                CanModerate = _room.IsHost && !isSelf && m.PeerId >= 0,
-                IsMuted     = _mutedMembers.Contains(m.Username)
+                Username     = m.Username,
+                IsSelf       = isSelf,
+                IsHostRole   = _room.IsHost && m.PeerId == -1,
+                CanModerate  = _room.IsHost && !isSelf && m.PeerId >= 0,
+                IsMuted      = _mutedMembers.Contains(m.Username)
             });
         }
 
@@ -1513,8 +1600,9 @@ public partial class TestWindow : Window
 
     private ushort GetPort()
     {
-        if (ushort.TryParse(PortBox.Text.Trim(), out ushort p) && p > 0) return p;
+        if (ushort.TryParse(PortBox.Text.Trim(), out ushort p) && p >= 1000) return p;
         PortBox.Text = "42777";
+        Save(PortPath, "42777");
         return 42777;
     }
 

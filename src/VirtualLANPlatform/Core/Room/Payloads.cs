@@ -10,7 +10,10 @@ public sealed class HandshakePayload
 
     public byte[] Serialize() => JsonSerializer.SerializeToUtf8Bytes(this);
     public static HandshakePayload? Deserialize(byte[] data)
-        => JsonSerializer.Deserialize<HandshakePayload>(data);
+    {
+        try { return JsonSerializer.Deserialize<HandshakePayload>(data); }
+        catch { return null; }
+    }
 }
 
 public sealed class MemberSyncPayload
@@ -21,7 +24,10 @@ public sealed class MemberSyncPayload
 
     public byte[] Serialize() => JsonSerializer.SerializeToUtf8Bytes(this);
     public static MemberSyncPayload? Deserialize(byte[] data)
-        => JsonSerializer.Deserialize<MemberSyncPayload>(data);
+    {
+        try { return JsonSerializer.Deserialize<MemberSyncPayload>(data); }
+        catch { return null; }
+    }
 }
 
 public sealed class MemberDto

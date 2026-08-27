@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Documents;
+using VirtualLANPlatform.UI.Emoji;
 
 namespace VirtualLANPlatform.UI;
 
@@ -42,7 +43,7 @@ public sealed class LinkFlowDocumentConverter : IValueConverter
         foreach (Match m in UrlRx.Matches(text))
         {
             if (m.Index > pos)
-                para.Inlines.Add(new Run(text[pos..m.Index]));
+                AddTextWithEmoji(para, text[pos..m.Index]);
 
             string url    = m.Value;
             string? emoji = PlatformEmoji(url);
@@ -69,7 +70,7 @@ public sealed class LinkFlowDocumentConverter : IValueConverter
         }
 
         if (pos < text.Length)
-            para.Inlines.Add(new Run(text[pos..]));
+            AddTextWithEmoji(para, text[pos..]);
 
         doc.Blocks.Add(para);
         return doc;
@@ -77,6 +78,31 @@ public sealed class LinkFlowDocumentConverter : IValueConverter
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
+
+    /// <summary>Splits <paramref name="text"/> into runs, swapping in a bundled 3D image wherever a known emoji appears.</summary>
+    private static void AddTextWithEmoji(Paragraph para, string text)
+    {
+        int i = 0, runStart = 0;
+        while (i < text.Length)
+        {
+            if (EmojiTextScanner.TryMatch(text, i, out string emoji) &&
+                Emoji3DImages.TryGet(emoji, out var image) && image != null)
+            {
+                if (i > runStart)
+                    para.Inlines.Add(new Run(text[runStart..i]));
+
+                var img = EmojiInline.CreateImage(image, emoji, 18);
+                para.Inlines.Add(new InlineUIContainer(img) { BaselineAlignment = BaselineAlignment.Center });
+
+                i        += emoji.Length;
+                runStart =  i;
+            }
+            else i++;
+        }
+
+        if (runStart < text.Length)
+            para.Inlines.Add(new Run(text[runStart..]));
+    }
 
     private static string? PlatformEmoji(string url)
     {

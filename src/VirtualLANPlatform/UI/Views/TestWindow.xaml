@@ -1191,7 +1191,7 @@
                            HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Run Text="Virtual LAN Platform"/>
                     <Run Text=" · "/>
-                    <Run Text="v1.0.6" FontFamily="Consolas"/>
+                    <Run Text="v1.0.7" FontFamily="Consolas"/>
                 </TextBlock>
                 <Button Style="{StaticResource Btn.Nav}" HorizontalAlignment="Left"
                         Foreground="{StaticResource TxtLo}" Padding="8,4"

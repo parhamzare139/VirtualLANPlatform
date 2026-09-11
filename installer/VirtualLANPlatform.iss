@@ -3,7 +3,9 @@
 #define AppPublisher "VirtualLAN"
 #define AppExeName   "VirtualLANPlatform.exe"
 #define SourceDir    "..\publish"
-#define OutputDir    "..\installer\output"
+; Repo root — so the installer sits right next to README.md, visible and
+; individually downloadable without digging into a subfolder.
+#define OutputDir    ".."
 
 [Setup]
 AppId={{F3A2B9C1-4E7D-4F2A-8B3C-9D1E5F6A7B8C}

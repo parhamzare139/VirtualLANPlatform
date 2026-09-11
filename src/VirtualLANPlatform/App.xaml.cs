@@ -43,6 +43,14 @@ public partial class App : Application
                 "name=\"VirtualLANPlatform UDP\" " +
                 $"protocol=UDP dir=in localport={port} " +
                 "action=allow profile=any");
+
+            // Fixed UDP port for the standalone virtual-LAN transport.
+            RunNetsh("advfirewall firewall delete rule name=\"VirtualLANPlatform VLAN\"");
+            RunNetsh(
+                "advfirewall firewall add rule " +
+                "name=\"VirtualLANPlatform VLAN\" " +
+                $"protocol=UDP dir=in localport={Core.VirtualLan.VirtualLanManager.VlanPort} " +
+                "action=allow profile=any");
         }
         catch { /* non-fatal — app still works on LANs that don't need this */ }
     });

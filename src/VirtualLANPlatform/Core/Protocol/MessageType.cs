@@ -20,5 +20,6 @@ public enum MessageType : byte
     ScreenShareStop   = 0x10,
     ScreenShareAudio  = 0x11,
     ChatControl       = 0x12, // delete / edit of an existing chat message
-    Moderation        = 0x13  // host → guest: force-mute, kick, stop screen share
+    Moderation        = 0x13, // host → guest: force-mute, kick, stop screen share
+    VirtualLanControl  = 0x14  // virtual-LAN IP assignment / control (host ↔ guest)
 }

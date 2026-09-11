@@ -61,6 +61,8 @@ public partial class TestWindow : Window
     private readonly System.Windows.Threading.DispatcherTimer _memberTimer;
 
     private readonly ScreenShareManager _screenShare = new();
+    private readonly VirtualLANPlatform.Core.VirtualLan.VirtualLanManager _vlan = new();
+    private bool                        _vlanBusy;
     private string?                     _remoteSharerUsername;
     private Storyboard?                 _dotPulse;
     private WaveOutEvent?               _audioOut;
@@ -114,6 +116,69 @@ public partial class TestWindow : Window
         // Catch hyperlink navigations bubbled from any RichTextBox in ChatList
         AddHandler(System.Windows.Documents.Hyperlink.RequestNavigateEvent,
             new System.Windows.Navigation.RequestNavigateEventHandler(OnLinkNavigate));
+
+        WireVirtualLan();
+    }
+
+    // ── Virtual LAN (standalone) ─────────────────────────────────────────────
+
+    private void WireVirtualLan()
+    {
+        _vlan.Connected    += ip  => Dispatch(() => { RenderVlanState(); VlanStatusText.Text = $"متصل — IP شما {ip}"; });
+        _vlan.Disconnected += ()  => Dispatch(RenderVlanState);
+        _vlan.StatusChanged += s  => Dispatch(() => { if (_vlan.IsActive) VlanStatusText.Text = s; });
+        _vlan.Error        += msg => Dispatch(() =>
+        {
+            ShowToast("شبکه مجازی", msg, isError: true);
+            RenderVlanState();
+        });
+        RenderVlanState();
+    }
+
+    private void RenderVlanState()
+    {
+        bool on = _vlan.IsActive;
+        VlanIdlePanel.Visibility   = on ? Visibility.Collapsed : Visibility.Visible;
+        VlanActivePanel.Visibility = on ? Visibility.Visible   : Visibility.Collapsed;
+        VlanHostBtn.IsEnabled      = !_vlanBusy;
+        VlanDisconnectBtn.IsEnabled = !_vlanBusy;
+        if (on) VlanIpText.Text = _vlan.AssignedIp;
+    }
+
+    private async void VlanHost_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vlanBusy || _vlan.IsActive) return;
+        _vlanBusy = true; RenderVlanState();
+        try
+        {
+            // The VLAN's own firewall rule (port 42778) is opened unconditionally at
+            // app startup — no need to touch the chat room's port/firewall state here.
+            string username = UsernameBox.Text.Trim() is { Length: > 0 } u ? u : "میزبان";
+            bool ok = await _vlan.HostAsync(username, GetSelectedAdapterIP());
+            if (!ok) ShowToast("شبکه مجازی", "میزبانی شروع نشد", isError: true);
+        }
+        finally { _vlanBusy = false; RenderVlanState(); }
+    }
+
+    private async void VlanDisconnect_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vlanBusy) return;
+        _vlanBusy = true; RenderVlanState();
+        // DisconnectAsync joins the tunnel read thread and shells netsh — off the UI thread.
+        try { await Task.Run(() => _vlan.DisconnectAsync()); }
+        finally { _vlanBusy = false; RenderVlanState(); }
+    }
+
+    private async void VlanCopy_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(_vlan.AssignedIp);
+            VlanCopied.Opacity = 1;
+            await Task.Delay(1500);
+            VlanCopied.Opacity = 0;
+        }
+        catch { }
     }
 
     // ── Persistence ───────────────────────────────────────────────────────────
@@ -225,14 +290,16 @@ public partial class TestWindow : Window
     // ── Join IP field ────────────────────────────────────────────────────────
 
     private void JoinCodeBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
-        => e.Handled = !e.Text.All(c => char.IsDigit(c) || c == '.');
+        => e.Handled = !e.Text.All(c => char.IsDigit(c) || c is '.' or ':');
 
     private void JoinCodeBox_Pasting(object sender, DataObjectPastingEventArgs e)
     {
         if (e.DataObject.GetDataPresent(System.Windows.DataFormats.Text))
         {
-            string text = e.DataObject.GetData(System.Windows.DataFormats.Text) as string ?? "";
-            if (!text.All(c => char.IsDigit(c) || c == '.')) e.CancelCommand();
+            string text = (e.DataObject.GetData(System.Windows.DataFormats.Text) as string ?? "").Trim();
+            bool ok = text.StartsWith("vlan://", StringComparison.OrdinalIgnoreCase)
+                   || text.All(c => char.IsDigit(c) || c is '.' or ':');
+            if (!ok) e.CancelCommand();
         }
         else e.CancelCommand();
     }
@@ -802,11 +869,32 @@ public partial class TestWindow : Window
     private async void Join_Click(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
-        string hostIp = JoinCodeBox.Text.Trim();
-        if (hostIp.Length == 0)
+
+        // Accept "ip", "ip:port", or a "vlan://ip:port" invite string. An explicit
+        // port in the field wins over the port box; otherwise fall back to it.
+        string raw = JoinCodeBox.Text.Trim();
+        if (raw.StartsWith("vlan://", StringComparison.OrdinalIgnoreCase))
+            raw = raw["vlan://".Length..].Trim().TrimEnd('/');
+
+        if (raw.Length == 0)
         {
             ShowToast("خطا", "لطفاً IP هاست را وارد کنید", isError: true);
             return;
+        }
+
+        string hostIp;
+        ushort port;
+        int colon = raw.LastIndexOf(':');
+        if (colon > 0 && colon < raw.Length - 1 &&
+            ushort.TryParse(raw[(colon + 1)..], out ushort parsedPort) && parsedPort >= 1000)
+        {
+            hostIp = raw[..colon];
+            port   = parsedPort;
+        }
+        else
+        {
+            hostIp = raw;
+            port   = GetPort();
         }
 
         SetBusy(true);
@@ -818,7 +906,7 @@ public partial class TestWindow : Window
 
         try
         {
-            bool ok = await _room.JoinRoomAsync(hostIp, GetPort(), username, _opCts!.Token);
+            bool ok = await _room.JoinRoomAsync(hostIp, port, username, _opCts!.Token);
             if (ok)
             {
                 DbgRole.Text = "Guest";
@@ -1063,8 +1151,37 @@ public partial class TestWindow : Window
     {
         var dlg = new OpenFileDialog { Title = "انتخاب فایل برای ارسال" };
         if (dlg.ShowDialog() != true) return;
+        BeginSendFile(dlg.FileName);
+    }
 
-        string path = dlg.FileName;
+    // ── Drag a file onto the chat area to send it ─────────────────────────────
+
+    private void ChatArea_DragOver(object sender, System.Windows.DragEventArgs e)
+    {
+        e.Effects = SendFileBtn.IsEnabled && e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop)
+            ? System.Windows.DragDropEffects.Copy
+            : System.Windows.DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void ChatArea_Drop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop)) return;
+        e.Handled = true;
+
+        if (!SendFileBtn.IsEnabled)
+        {
+            ShowToast("ارسال فایل", "ابتدا باید حداقل یک نفر به Room متصل شود", isError: true);
+            return;
+        }
+
+        var paths = (string[])e.Data.GetData(System.Windows.DataFormats.FileDrop);
+        foreach (string path in paths.Where(System.IO.File.Exists))
+            BeginSendFile(path);
+    }
+
+    private void BeginSendFile(string path)
+    {
         string name = System.IO.Path.GetFileName(path);
         long   size = new System.IO.FileInfo(path).Length;
 
@@ -1178,6 +1295,14 @@ public partial class TestWindow : Window
         _messages[msg.Id] = msg;
         ChatList.Items.Add(msg);
         ChatList.ScrollIntoView(msg);
+
+        // Notify only when the message is from someone else and the user isn't
+        // looking (window inactive or minimized).
+        if (!msg.IsOwn && (!IsActive || WindowState == WindowState.Minimized))
+        {
+            string preview = msg.Text.Length > 120 ? msg.Text[..120] + "…" : msg.Text;
+            ShowNotification($"پیام جدید از {msg.Sender}", preview);
+        }
     }
 
     private void ReplyTo_Click(object sender, RoutedEventArgs e)
@@ -1626,6 +1751,7 @@ public partial class TestWindow : Window
     private void Window_Closing(object sender, CancelEventArgs e)
     {
         _memberTimer.Stop();
+        _vlan.Dispose();
         _screenShare.Dispose();
         StopAudioPlayback();
         _trayIcon?.Dispose();

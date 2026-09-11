@@ -707,8 +707,11 @@
                 </Border>
 
                 <!-- ══════════ LOBBY ══════════ -->
-                <Grid x:Name="LobbyActions" Grid.Row="1" VerticalAlignment="Center"
-                      HorizontalAlignment="Center" MaxWidth="760">
+                <!-- Scrolls when the window is too small to fit everything (e.g. not
+                     maximized); when everything fits, there's nothing to scroll. -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <Grid x:Name="LobbyActions"
+                      HorizontalAlignment="Center" MaxWidth="760" Margin="0,16,0,16">
                     <Grid.RenderTransform><TranslateTransform x:Name="LobbySlide" Y="26"/></Grid.RenderTransform>
                     <Grid.Triggers>
                         <EventTrigger RoutedEvent="Grid.Loaded">
@@ -722,6 +725,7 @@
                         </EventTrigger>
                     </Grid.Triggers>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -927,8 +931,75 @@
                         </Border>
                     </Grid>
 
+                    <!-- ══════════ VIRTUAL LAN (standalone — not tied to a Room) ══════════ -->
+                    <Border Grid.Row="3" Style="{StaticResource Card}" Margin="0,14,0,0" Padding="20,17">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <Border Width="42" Height="42" CornerRadius="12" Margin="0,0,13,0"
+                                        Background="{StaticResource AccentGrad}">
+                                    <ico:PackIconLucide Kind="Network" Width="20" Height="20" Foreground="White"
+                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="شبکه‌ی مجازی (LAN)" Foreground="{StaticResource TxtHi}"
+                                               FontSize="15" FontWeight="Bold"/>
+                                    <TextBlock Text="مستقل از Room — برای بازی‌های شبکه‌ای" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11" Margin="0,3,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <!-- Host-only: this app creates a virtual LAN, it doesn't join one. -->
+                            <StackPanel x:Name="VlanIdlePanel">
+                                <Button x:Name="VlanHostBtn" Style="{StaticResource Btn.Primary}"
+                                        HorizontalAlignment="Stretch" Padding="0,11" Click="VlanHost_Click">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <ico:PackIconLucide Kind="Radio" Width="15" Height="15"
+                                                            VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="میزبانیِ شبکه‌ی مجازی" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+
+                            <!-- Active: assigned IP + disconnect -->
+                            <StackPanel x:Name="VlanActivePanel" Visibility="Collapsed">
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="IP شما:" Foreground="{StaticResource TxtLo}"
+                                               FontSize="12.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Border Grid.Column="1" Background="{StaticResource InputBg}" CornerRadius="9"
+                                            BorderBrush="{StaticResource Stroke}" BorderThickness="1" Padding="12,8">
+                                        <TextBlock x:Name="VlanIpText" Text="—" Foreground="{StaticResource Accent2}"
+                                                   FontFamily="Consolas" FontSize="13.5" FontWeight="Bold"
+                                                   FlowDirection="LeftToRight"/>
+                                    </Border>
+                                    <Button Grid.Column="2" x:Name="VlanCopyBtn" Style="{StaticResource Btn.Ghost}"
+                                            Padding="14,0" Height="38" Margin="8,0,0,0" Click="VlanCopy_Click">
+                                        <TextBlock Text="کپی" VerticalAlignment="Center"/>
+                                    </Button>
+                                    <TextBlock Grid.Column="3" x:Name="VlanCopied" Text="✓" Foreground="{StaticResource Ok}"
+                                               FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0"/>
+                                </Grid>
+                                <TextBlock x:Name="VlanStatusText" Text="" Foreground="{StaticResource TxtLo}"
+                                           FontSize="11" Margin="2,0,0,10"/>
+                                <Button x:Name="VlanDisconnectBtn" Style="{StaticResource Btn.Danger}"
+                                        HorizontalAlignment="Stretch" Padding="0,10" Click="VlanDisconnect_Click">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <ico:PackIconLucide Kind="Power" Width="14" Height="14"
+                                                            VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                        <TextBlock Text="قطع شبکه‌ی مجازی" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Donate -->
-                    <Button Grid.Row="3" Style="{StaticResource Btn.Nav}"
+                    <Button Grid.Row="4" Style="{StaticResource Btn.Nav}"
                             Foreground="{StaticResource Danger}"
                             HorizontalAlignment="Center" Margin="0,10,0,0"
                             Click="NavDonate_Click">
@@ -939,10 +1010,12 @@
                         </StackPanel>
                     </Button>
                 </Grid>
+                </ScrollViewer>
 
                 <!-- ══════════ CHAT / FILES / SCREEN SHARE ══════════ -->
                 <Border Grid.Row="1" x:Name="ChatPanel" Style="{StaticResource Panel}"
-                        Visibility="Collapsed" ClipToBounds="True">
+                        Visibility="Collapsed" ClipToBounds="True"
+                        AllowDrop="True" DragOver="ChatArea_DragOver" Drop="ChatArea_Drop">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/> <!-- Tab bar -->

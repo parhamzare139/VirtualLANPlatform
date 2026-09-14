@@ -4,6 +4,8 @@ using VirtualLANPlatform.Core.Networking;
 using VirtualLANPlatform.Core.Protocol;
 using LiteNetLib;
 
+using VirtualLANPlatform.UI.Localization;
+
 namespace VirtualLANPlatform.Core.Chat;
 
 /// <summary>
@@ -13,7 +15,7 @@ namespace VirtualLANPlatform.Core.Chat;
 public sealed class ChatManager : IDisposable
 {
     private readonly P2PManager _p2p;
-    private string _myUsername = "کاربر";
+    private string _myUsername = Loc.T("Chat_DefaultUser");
 
     public event Action<ChatMessage>? MessageReceived;
     public event Action<string>?      MessageDeleted;

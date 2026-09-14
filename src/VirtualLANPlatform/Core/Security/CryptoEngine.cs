@@ -68,7 +68,7 @@ public sealed class CryptoEngine : IDisposable
     public static byte[] Decrypt(byte[] sessionKey, byte[] encryptedData)
     {
         if (encryptedData.Length < NonceSize + TagSize)
-            throw new CryptographicException("رمزنگاری: داده خیلی کوتاه است.");
+            throw new CryptographicException(UI.Localization.Loc.T("Crypto_TooShort"));
 
         var nonce      = encryptedData.AsSpan(0, NonceSize);
         var tag        = encryptedData.AsSpan(NonceSize, TagSize);

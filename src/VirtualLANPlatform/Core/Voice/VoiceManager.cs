@@ -7,6 +7,8 @@ using NAudio.Wave.SampleProviders;
 using VirtualLANPlatform.Core.Networking;
 using VirtualLANPlatform.Core.Protocol;
 
+using VirtualLANPlatform.UI.Localization;
+
 namespace VirtualLANPlatform.Core.Voice;
 
 /// <summary>
@@ -89,7 +91,7 @@ public sealed class VoiceManager : IDisposable
 
     public void ToggleMic()
     {
-        if (_isForceMuted) { StatusChanged?.Invoke("میکروفون توسط میزبان قفل شده"); return; }
+        if (_isForceMuted) { StatusChanged?.Invoke(Loc.T("Vc_MicLocked")); return; }
         _isMicActive = !_isMicActive;
 
         lock (_captureLock)
@@ -102,7 +104,7 @@ public sealed class VoiceManager : IDisposable
         }
 
         MicChanged?.Invoke(_isMicActive);
-        StatusChanged?.Invoke(_isMicActive ? "میکروفون فعال" : "میکروفون خاموش");
+        StatusChanged?.Invoke(_isMicActive ? Loc.T("Vc_MicOn") : Loc.T("Vc_MicOff"));
     }
 
     public void ToggleSpeaker()
@@ -112,7 +114,7 @@ public sealed class VoiceManager : IDisposable
             foreach (var (buffer, _) in _outputs.Values)
                 buffer.ClearBuffer();
         SpeakerChanged?.Invoke(!_isSpeakerMuted);
-        StatusChanged?.Invoke(_isSpeakerMuted ? "اسپیکر خاموش" : "اسپیکر فعال");
+        StatusChanged?.Invoke(_isSpeakerMuted ? Loc.T("Vc_SpkOff") : Loc.T("Vc_SpkOn"));
     }
 
     public void SetForceMuted(bool muted)
@@ -127,7 +129,7 @@ public sealed class VoiceManager : IDisposable
         }
 
         MicChanged?.Invoke(IsMicActive);
-        StatusChanged?.Invoke(muted ? "میزبان میکروفون شما را بست" : "میزبان میکروفون شما را باز کرد");
+        StatusChanged?.Invoke(muted ? Loc.T("Vc_HostMuted") : Loc.T("Vc_HostUnmuted"));
     }
 
     // ── Peer lifecycle ────────────────────────────────────────────────────────
@@ -200,7 +202,7 @@ public sealed class VoiceManager : IDisposable
                 wasapi.DataAvailable += OnWasapiDataAvailable;
                 wasapi.StartRecording();
                 _waveIn = wasapi;
-                StatusChanged?.Invoke("میکروفون فعال");
+                StatusChanged?.Invoke(Loc.T("Vc_MicOn"));
             }
             catch
             {
@@ -216,14 +218,14 @@ public sealed class VoiceManager : IDisposable
                 waveIn.DataAvailable += OnDataAvailable;
                 waveIn.StartRecording();
                 _waveIn = waveIn;
-                StatusChanged?.Invoke("میکروفون فعال");
+                StatusChanged?.Invoke(Loc.T("Vc_MicOn"));
             }
         }
         catch (Exception ex)
         {
             _isMicActive = false;
             MicChanged?.Invoke(false);
-            StatusChanged?.Invoke($"میکروفون در دسترس نیست: {ex.Message}");
+            StatusChanged?.Invoke(Loc.T("Vc_MicUnavailable", ex.Message));
         }
     }
 

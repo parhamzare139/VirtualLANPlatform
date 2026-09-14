@@ -6,6 +6,8 @@ using VirtualLANPlatform.Core.Protocol;
 using VirtualLANPlatform.Core.Storage;
 using LiteNetLib;
 
+using VirtualLANPlatform.UI.Localization;
+
 namespace VirtualLANPlatform.Core.Room;
 
 public sealed class RoomManager : IDisposable
@@ -51,7 +53,7 @@ public sealed class RoomManager : IDisposable
     private string? ValidateIncoming(string username, System.Net.IPEndPoint _)
     {
         if (_members.Values.Any(m => m.Username == username))
-            return $"نام کاربری «{username}» قبلاً در این Room استفاده می‌شود";
+            return Loc.T("Rm_NameTaken", username);
         return null;
     }
 
@@ -63,7 +65,7 @@ public sealed class RoomManager : IDisposable
         MyUsername = username;
         IsHost     = true;
 
-        StatusChanged?.Invoke("در حال راه‌اندازی Room...");
+        StatusChanged?.Invoke(Loc.T("Rm_Starting"));
 
         var (ok, resolvedIp, boundPort) = await _p2p.StartAsHostAsync(username, port, localIp, ct);
         if (!ok) return (false, "", 0);
@@ -78,7 +80,7 @@ public sealed class RoomManager : IDisposable
         _repo.RecordJoin(RoomId, username);
 
         MemberJoined?.Invoke(hostMember);
-        StatusChanged?.Invoke("Room فعال — منتظر اتصال");
+        StatusChanged?.Invoke(Loc.T("Rm_Waiting"));
         return (true, resolvedIp, boundPort);
     }
 
@@ -88,7 +90,7 @@ public sealed class RoomManager : IDisposable
         MyUsername = username;
         IsHost     = false;
 
-        StatusChanged?.Invoke("در حال اتصال...");
+        StatusChanged?.Invoke(Loc.T("Rm_Connecting"));
 
         bool ok = await _p2p.ConnectAsGuestAsync(hostIp, hostPort, username, ct);
         if (!ok) return false;
@@ -180,7 +182,7 @@ public sealed class RoomManager : IDisposable
         }
 
         MemberJoined?.Invoke(member);
-        StatusChanged?.Invoke($"متصل — {_members.Count} عضو");
+        StatusChanged?.Invoke(Loc.T("Rm_MembersN", _members.Count));
     }
 
     private void OnPeerDisconnected(int peerId, string reason)
@@ -191,8 +193,8 @@ public sealed class RoomManager : IDisposable
             if (IsHost) BroadcastMemberSync("leave", member.Username);
             MemberLeft?.Invoke(member with { LeftAt = DateTime.UtcNow });
             StatusChanged?.Invoke(_members.Count > 0
-                ? $"متصل — {_members.Count} عضو"
-                : "قطع شده");
+                ? Loc.T("Rm_MembersN", _members.Count)
+                : Loc.T("Rm_Disconnected"));
         }
     }
 
@@ -214,7 +216,7 @@ public sealed class RoomManager : IDisposable
                 if (Encoding.UTF8.GetString(frame.Payload.ToArray()) == "host_close" && !IsHost)
                 {
                     IsActive = false;
-                    RoomClosed?.Invoke("میزبان Room را بست");
+                    RoomClosed?.Invoke(Loc.T("Rm_HostClosed"));
                 }
                 break;
 
@@ -261,7 +263,7 @@ public sealed class RoomManager : IDisposable
             MemberJoined?.Invoke(record);
         }
 
-        StatusChanged?.Invoke($"عضو شدید — {_members.Count} عضو در Room");
+        StatusChanged?.Invoke(Loc.T("Rm_JoinedN", _members.Count));
     }
 
     private void HandleMemberSync(byte[] data)
@@ -278,7 +280,7 @@ public sealed class RoomManager : IDisposable
         if (sync.Event == "join") MemberJoined?.Invoke(evtMember);
         else                      MemberLeft?.Invoke(evtMember);
 
-        StatusChanged?.Invoke($"متصل — {_members.Count} عضو");
+        StatusChanged?.Invoke(Loc.T("Rm_MembersN", _members.Count));
     }
 
     private void SendHandshakeResponse(int peerId)

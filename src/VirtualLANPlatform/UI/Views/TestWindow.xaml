@@ -7,26 +7,28 @@
         xmlns:ctl="clr-namespace:VirtualLANPlatform.UI.Controls"
         xmlns:emoji="clr-namespace:Emoji.Wpf;assembly=Emoji.Wpf"
         xmlns:ico="http://metro.mahapps.com/winfx/xaml/iconpacks"
+        xmlns:loc="clr-namespace:VirtualLANPlatform.UI.Localization"
         Title="Virtual LAN Platform"
         Height="760" Width="1180"
         MinHeight="640" MinWidth="980"
-        FlowDirection="RightToLeft"
+        FlowDirection="{Binding Flow, Source={x:Static loc:Loc.I}}"
         Background="{StaticResource Base}"
-        FontFamily="Vazir, Segoe UI, Tahoma"
+        FontFamily="{Binding Font, Source={x:Static loc:Loc.I}}"
         TextOptions.TextFormattingMode="Ideal"
         TextOptions.TextRenderingMode="ClearType"
+        TextOptions.TextHintingMode="Fixed"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         Opacity="0"
         Closing="Window_Closing">
 
-    <Window.Triggers>
-        <EventTrigger RoutedEvent="Window.Loaded">
-            <BeginStoryboard><Storyboard>
-                <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.35">
-                    <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
-                </DoubleAnimation>
-            </Storyboard></BeginStoryboard>
-        </EventTrigger>
-    </Window.Triggers>
+<!--
+      The open fade lives in code-behind (FadeInWindow), not in a Storyboard here.
+      A Storyboard on Window.Opacity keeps its clock attached for the lifetime of
+      the window, which pins the HWND to the layered-window path and silently
+      disables ClearType for *everything* inside it. Text looked soft everywhere
+      because of this. The code-behind version detaches the animation on Completed.
+    -->
 
     <Window.Resources>
 
@@ -34,7 +36,6 @@
           Emoji.Wpf.TextBox is a shell whose template hosts an inner
           Emoji.Wpf.RichTextBox; properties set on the shell don't reach it.
           This implicit style is how the composer gets its dark treatment.
-          Keyed styles (MsgBody below) still win where they're applied.
         -->
         <Style TargetType="{x:Type emoji:RichTextBox}">
             <Setter Property="Background"               Value="Transparent"/>
@@ -49,41 +50,6 @@
             <Setter Property="ScrollViewer.VerticalScrollBarVisibility"   Value="Hidden"/>
             <Style.Resources>
                 <Style TargetType="Paragraph"><Setter Property="Margin" Value="0"/></Style>
-            </Style.Resources>
-        </Style>
-
-        <!-- Read-only rich text for chat messages — supports clickable hyperlinks. -->
-        <Style x:Key="MsgBody" TargetType="{x:Type RichTextBox}">
-            <Setter Property="IsReadOnly"             Value="True"/>
-            <Setter Property="IsReadOnlyCaretVisible" Value="False"/>
-            <Setter Property="IsDocumentEnabled"      Value="True"/>
-            <Setter Property="Background"             Value="Transparent"/>
-            <Setter Property="BorderThickness"        Value="0"/>
-            <Setter Property="Padding"                Value="0"/>
-            <Setter Property="Margin"                 Value="0,2,0,0"/>
-            <Setter Property="Foreground"             Value="{StaticResource TxtHi}"/>
-            <Setter Property="FontSize"               Value="13.5"/>
-            <Setter Property="FontFamily"             Value="Vazir, Segoe UI, Tahoma"/>
-            <Setter Property="SelectionBrush"         Value="{StaticResource Accent}"/>
-            <Setter Property="SelectionOpacity"       Value="0.45"/>
-            <Setter Property="Cursor"                 Value="IBeam"/>
-            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
-            <Setter Property="ScrollViewer.VerticalScrollBarVisibility"   Value="Disabled"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type RichTextBox}">
-                        <ScrollViewer x:Name="PART_ContentHost"
-                                      Focusable="False"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      VerticalScrollBarVisibility="Disabled"/>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Resources>
-                <Style TargetType="Paragraph">
-                    <Setter Property="Margin"     Value="0"/>
-                    <Setter Property="LineHeight" Value="20"/>
-                </Style>
             </Style.Resources>
         </Style>
 
@@ -118,17 +84,31 @@
         </Style>
 
         <!-- ══════════ CHAT MESSAGE ══════════ -->
+        <!--
+          Messenger layout: bubbles hug their text and take a side — own on the right,
+          everyone else on the left.
+
+          Wrapper is pinned to LeftToRight so "Left"/"Right" and Grid.Column mean the
+          physical screen sides, full stop; under the window's inherited RTL they don't
+          resolve the way you'd read them. The pieces that hold content — the bubble's
+          inner stack and the action row — are switched back to RightToLeft so Persian
+          text and icon order stay correct.
+        -->
         <DataTemplate DataType="{x:Type chat:ChatMessage}">
-            <Border x:Name="Root" Background="#1C2236" CornerRadius="10"
-                    Padding="8,6" Margin="0,1" Opacity="0">
-                <Border.Triggers>
+            <Grid x:Name="Wrapper" Margin="6,2" Opacity="0"
+                  FlowDirection="LeftToRight"
+                  RenderTransformOrigin="0.5,0.5">
+                <!-- Rise animated on a transform, not on Margin: a held Margin animation
+                     outranks the ShowHeader setter below and would pin the spacing. -->
+                <Grid.RenderTransform><TranslateTransform x:Name="Rise" Y="7"/></Grid.RenderTransform>
+                <Grid.Triggers>
                     <EventTrigger RoutedEvent="Loaded">
                         <BeginStoryboard><Storyboard>
-                            <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.28"/>
-                            <ThicknessAnimation Storyboard.TargetProperty="Margin"
-                                                From="0,9,0,-8" To="0,1,0,1" Duration="0:0:0.28">
-                                <ThicknessAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></ThicknessAnimation.EasingFunction>
-                            </ThicknessAnimation>
+                            <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.24"/>
+                            <DoubleAnimation Storyboard.TargetName="Rise" Storyboard.TargetProperty="Y"
+                                             To="0" Duration="0:0:0.24">
+                                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
                         </Storyboard></BeginStoryboard>
                     </EventTrigger>
                     <EventTrigger RoutedEvent="MouseEnter">
@@ -143,64 +123,93 @@
                                              To="0" Duration="0:0:0.18"/>
                         </Storyboard></BeginStoryboard>
                     </EventTrigger>
-                </Border.Triggers>
+                </Grid.Triggers>
 
-                <Grid>
+                <!-- Column 0 is the physical LEFT slot. Incoming sits on the left with its
+                     actions to the right of it (inboard); the IsOwn trigger swaps both. -->
+                <Grid x:Name="Row" HorizontalAlignment="Left">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Column="0">
-                        <!-- Header: name · time · hover actions -->
-                        <Grid x:Name="HeaderRow">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                <TextBlock Text="{Binding Sender}" FontSize="12.5" FontWeight="Bold"
-                                           Foreground="{StaticResource TxtHi}"
-                                           VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding SentAt, StringFormat='HH:mm'}"
-                                           Foreground="{StaticResource TxtLo}" FontSize="10.5"
-                                           FontFamily="Consolas" FlowDirection="LeftToRight"
-                                           VerticalAlignment="Center" Margin="8,1,0,0"/>
-                            </StackPanel>
+                    <!-- The bubble -->
+                    <Border x:Name="Root" Grid.Column="0"
+                            Background="#212A3E" CornerRadius="4,16,16,16"
+                            Padding="12,8,12,7" MaxWidth="520">
+                        <StackPanel FlowDirection="{Binding Flow, Source={x:Static loc:Loc.I}}">
 
-                            <StackPanel x:Name="Actions" Grid.Column="2" Orientation="Horizontal" Opacity="0">
-                                <Button Style="{StaticResource Btn.IconSm}" ToolTip="پاسخ"
-                                        Click="ReplyTo_Click"
-                                        Visibility="{Binding IsAlive, Converter={StaticResource BoolVis}}">
-                                    <ico:PackIconLucide Kind="Reply" Width="14" Height="14"/>
-                                </Button>
-                                <Button Style="{StaticResource Btn.IconSm}" ToolTip="حذف پیام"
-                                        Click="DeleteMsg_Click"
-                                        Visibility="{Binding CanModify, Converter={StaticResource BoolVis}}">
-                                    <ico:PackIconLucide Kind="Trash2" Width="14" Height="14"/>
-                                </Button>
-                            </StackPanel>
-                        </Grid>
+                            <!-- Sender — first message of a run only, coloured like a messenger -->
+                            <TextBlock x:Name="SenderName" Text="{Binding Sender}"
+                                       FontSize="12.5" FontWeight="Bold"
+                                       Foreground="{StaticResource Accent2}"
+                                       Margin="0,0,0,3"/>
 
-                        <!-- Quoted message -->
-                        <Border Visibility="{Binding ReplyVisibility}"
-                                Background="#161B28" CornerRadius="8"
-                                BorderBrush="{StaticResource Accent}" BorderThickness="0,0,3,0"
-                                Padding="9,5" Margin="0,5,0,1"
-                                Tag="{Binding ReplyToId}" Cursor="Hand"
-                                MouseLeftButtonUp="ReplyQuote_Click">
-                            <StackPanel>
-                                <TextBlock Text="{Binding ReplyToSender}" FontSize="11" FontWeight="SemiBold"
-                                           Foreground="{StaticResource Accent2}"/>
-                                <TextBlock Text="{Binding ReplyToText}" FontSize="11.5"
-                                           Foreground="{StaticResource TxtMid}"
-                                           TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
-                            </StackPanel>
-                        </Border>
+                            <!-- Quoted message -->
+                            <Border Visibility="{Binding ReplyVisibility}"
+                                    Background="#00000033" CornerRadius="6"
+                                    BorderBrush="{StaticResource Accent2}" BorderThickness="0,0,3,0"
+                                    Padding="8,4" Margin="0,1,0,5"
+                                    Tag="{Binding ReplyToId}" Cursor="Hand"
+                                    MouseLeftButtonUp="ReplyQuote_Click">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding ReplyToSender}" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{StaticResource Accent2}"/>
+                                    <TextBlock Text="{Binding ReplyToText}" FontSize="11.5"
+                                               Foreground="{StaticResource TxtMid}"
+                                               TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                                </StackPanel>
+                            </Border>
 
-                        <!-- Body: attached property avoids WPF's restriction on binding Document directly -->
-                        <RichTextBox x:Name="Body" Style="{StaticResource MsgBody}"
-                                     ui:RichTextBoxHelper.DocumentSource="{Binding Text, Mode=OneWay}"/>
+                            <!-- Body + timestamp. The time sits on the last line's trailing edge
+                                 when it fits, and drops below when the text is too wide. -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock x:Name="Body" Grid.Column="0"
+                                           ui:TextBlockHelper.InlineSource="{Binding Text, Mode=OneWay}"
+                                           Foreground="{StaticResource TxtHi}" FontSize="13.5"
+                                           TextWrapping="Wrap" LineHeight="20"/>
+
+                                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                            VerticalAlignment="Bottom" Margin="10,0,0,-1">
+                                    <TextBlock Text="{Binding SentAt, StringFormat='HH:mm'}"
+                                               Foreground="#8C93A6" FontSize="10.5"
+                                               FontFamily="Consolas" FlowDirection="LeftToRight"/>
+                                    <ico:PackIconLucide x:Name="SentTick" Kind="Check"
+                                                        Width="12" Height="12" Margin="3,0,0,0"
+                                                        Foreground="#8C93A6" VerticalAlignment="Center"
+                                                        Visibility="Collapsed"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Hover actions, floating beside the bubble -->
+                    <StackPanel x:Name="Actions" Grid.Column="1" Orientation="Horizontal" Opacity="0"
+                                FlowDirection="{Binding Flow, Source={x:Static loc:Loc.I}}"
+                                VerticalAlignment="Center" Margin="4,0,4,0">
+                        <Button Style="{StaticResource Btn.IconSm}" Width="26" Height="26" ToolTip="{loc:Tr Msg_Reply}"
+                                Click="ReplyTo_Click"
+                                Visibility="{Binding IsAlive, Converter={StaticResource BoolVis}}">
+                            <ico:PackIconLucide Kind="Reply" Width="14" Height="14"/>
+                        </Button>
+                        <Button Style="{StaticResource Btn.IconSm}" Width="26" Height="26" ToolTip="{loc:Tr Msg_CopyText}"
+                                Click="CopyMsg_Click"
+                                Visibility="{Binding IsAlive, Converter={StaticResource BoolVis}}">
+                            <ico:PackIconLucide Kind="Copy" Width="13" Height="13"/>
+                        </Button>
+                        <Button Style="{StaticResource Btn.IconSm}" Width="26" Height="26" ToolTip="{loc:Tr Msg_Delete}"
+                                Click="DeleteMsg_Click"
+                                Visibility="{Binding CanModify, Converter={StaticResource BoolVis}}">
+                            <ico:PackIconLucide Kind="Trash2" Width="14" Height="14"/>
+                        </Button>
                     </StackPanel>
                 </Grid>
-            </Border>
+            </Grid>
 
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsDeleted}" Value="True">
@@ -208,29 +217,42 @@
                     <Setter TargetName="Body" Property="FontStyle"  Value="Italic"/>
                     <Setter TargetName="Body" Property="FontSize"   Value="12.5"/>
                 </DataTrigger>
+
+                <!-- Own message: physical right, accent bubble, mirrored tail, delivery tick.
+                     Swapping Grid.Column keeps the actions on the bubble's inboard flank. -->
                 <DataTrigger Binding="{Binding IsOwn}" Value="True">
-                    <Setter TargetName="Root" Property="Background" Value="#1A2850"/>
+                    <Setter TargetName="Row"        Property="HorizontalAlignment" Value="Right"/>
+                    <Setter TargetName="Root"       Property="Grid.Column"  Value="1"/>
+                    <Setter TargetName="Actions"    Property="Grid.Column"  Value="0"/>
+                    <Setter TargetName="Root"       Property="Background"   Value="#2F4A87"/>
+                    <Setter TargetName="Root"       Property="CornerRadius" Value="16,4,16,16"/>
+                    <Setter TargetName="SenderName" Property="Visibility"   Value="Collapsed"/>
+                    <Setter TargetName="SentTick"   Property="Visibility"   Value="Visible"/>
                 </DataTrigger>
+
+                <!-- Follow-up message in a run: no name, softened tail, tighter spacing -->
                 <DataTrigger Binding="{Binding ShowHeader}" Value="False">
-                    <Setter TargetName="HeaderRow" Property="Visibility" Value="Collapsed"/>
-                    <Setter TargetName="Root"      Property="Padding"    Value="8,2,8,4"/>
+                    <Setter TargetName="SenderName" Property="Visibility"   Value="Collapsed"/>
+                    <Setter TargetName="Root"       Property="CornerRadius" Value="16"/>
+                    <Setter TargetName="Wrapper"    Property="Margin"       Value="6,0,6,2"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
 
         <!-- ══════════ FILE CARD ══════════ -->
         <DataTemplate DataType="{x:Type local:FileNotification}">
-            <Border x:Name="FileRoot" Background="{StaticResource CardGrad}" CornerRadius="12"
+            <!-- Sized and sided like a chat bubble so files sit in the same conversation
+                 rhythm. LeftToRight pins the side to physical screen coordinates; the
+                 inner grid goes back to RightToLeft for the Persian content. -->
+            <Border x:Name="FileRoot" Background="#212A3E" CornerRadius="4,16,16,16"
                     BorderBrush="{StaticResource Stroke}" BorderThickness="1"
-                    Padding="12,10" Margin="8,4" Opacity="0">
+                    Padding="12,10" Margin="8,4" Opacity="0"
+                    FlowDirection="LeftToRight"
+                    HorizontalAlignment="Left" MinWidth="300" MaxWidth="460">
                 <Border.Triggers>
                     <EventTrigger RoutedEvent="Loaded">
                         <BeginStoryboard><Storyboard>
                             <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.3"/>
-                            <ThicknessAnimation Storyboard.TargetProperty="Margin"
-                                                From="8,13,8,-5" To="8,4,8,4" Duration="0:0:0.3">
-                                <ThicknessAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></ThicknessAnimation.EasingFunction>
-                            </ThicknessAnimation>
                         </Storyboard></BeginStoryboard>
                     </EventTrigger>
                     <EventTrigger RoutedEvent="MouseEnter">
@@ -246,7 +268,7 @@
                         </Storyboard></BeginStoryboard>
                     </EventTrigger>
                 </Border.Triggers>
-                <Grid>
+                <Grid FlowDirection="{Binding Flow, Source={x:Static loc:Loc.I}}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
@@ -273,7 +295,7 @@
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                         <StackPanel x:Name="FileActions" Orientation="Horizontal" Opacity="0" Margin="0,0,6,0">
-                            <Button Style="{StaticResource Btn.IconSm}" ToolTip="پاسخ"
+                            <Button Style="{StaticResource Btn.IconSm}" ToolTip="{loc:Tr Msg_Reply}"
                                     Click="ReplyToFile_Click">
                                 <ico:PackIconLucide Kind="Reply" Width="14" Height="14"/>
                             </Button>
@@ -281,17 +303,25 @@
                         <Button Style="{StaticResource Btn.Success}"
                                 IsEnabled="{Binding CanDownload}"
                                 Visibility="{Binding DownloadVisibility}"
-                                Padding="13,7" FontSize="12" Margin="6,0,0,0"
+                                Height="34" MinHeight="34" Padding="14,0" FontSize="12.5" Margin="6,0,0,0"
                                 Click="DownloadFile_Click">
                             <StackPanel Orientation="Horizontal">
                                 <ico:PackIconLucide Kind="Download" Width="14" Height="14"
                                                     VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <TextBlock Text="دانلود" VerticalAlignment="Center"/>
+                                <TextBlock Text="{loc:Tr File_Download}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
                     </StackPanel>
                 </Grid>
             </Border>
+
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsSent}" Value="True">
+                    <Setter TargetName="FileRoot" Property="HorizontalAlignment" Value="Right"/>
+                    <Setter TargetName="FileRoot" Property="Background"          Value="#2F4A87"/>
+                    <Setter TargetName="FileRoot" Property="CornerRadius"        Value="16,4,16,16"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
         </DataTemplate>
 
         <!-- ══════════ MEMBER ROW ══════════ -->
@@ -338,11 +368,11 @@
                             <ico:PackIconLucide Kind="{Binding MuteIcon}" Width="13" Height="13"/>
                         </Button>
                         <Button Style="{StaticResource Btn.IconSm}" Width="24" Height="24"
-                                ToolTip="قطع اشتراک صفحه" Tag="{Binding}" Click="ModStopShare_Click">
+                                ToolTip="{loc:Tr Member_StopShare}" Tag="{Binding}" Click="ModStopShare_Click">
                             <ico:PackIconLucide Kind="MonitorOff" Width="13" Height="13"/>
                         </Button>
                         <Button Style="{StaticResource Btn.IconSm}" Width="24" Height="24"
-                                ToolTip="اخراج از Room" Tag="{Binding}" Click="ModKick_Click"
+                                ToolTip="{loc:Tr Member_Kick}" Tag="{Binding}" Click="ModKick_Click"
                                 Foreground="{StaticResource Danger}">
                             <ico:PackIconLucide Kind="UserX" Width="13" Height="13"/>
                         </Button>
@@ -380,19 +410,36 @@
                 <!-- Brand -->
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
                             FlowDirection="LeftToRight">
-                    <Border Width="30" Height="30" CornerRadius="9" Padding="3"
-                            Background="#1A1F2E" Margin="0,0,10,0">
+                    <Border Width="34" Height="34" CornerRadius="10" Padding="3"
+                            Background="#1A1F2E" Margin="0,0,11,0">
+                        <!-- logo.png is 1024², drawn at 34pt. Fant is the highest-quality
+                             WPF downscaler (a real Lanczos-ish filter); HighQuality is only
+                             bilinear+mip and leaves the mark looking mushy at this ratio. -->
                         <Image Source="pack://application:,,,/Assets/logo.png"
-                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                               RenderOptions.BitmapScalingMode="Fant"
+                               RenderOptions.EdgeMode="Unspecified"/>
                     </Border>
                     <TextBlock Text="VirtualLAN" Foreground="{StaticResource TxtHi}"
-                               FontSize="15.5" FontWeight="Bold" FontFamily="Segoe UI"
+                               FontSize="17" FontWeight="Bold" FontFamily="Segoe UI"
                                VerticalAlignment="Center"/>
-                    <Border Background="#1D2436" CornerRadius="6" Padding="6,2" Margin="9,1,0,0"
+                    <Border Background="#1D2436" CornerRadius="6" Padding="7,2" Margin="9,1,0,0"
                             VerticalAlignment="Center">
                         <TextBlock Text="BETA" Foreground="{StaticResource Accent2}"
-                                   FontSize="9" FontWeight="Bold" FontFamily="Segoe UI"/>
+                                   FontSize="9.5" FontWeight="Bold" FontFamily="Segoe UI"/>
                     </Border>
+
+                    <!-- Language toggle. Labelled with the language it switches TO, which
+                         is the one convention every user already reads correctly. -->
+                    <Button x:Name="LangBtn" Style="{StaticResource Btn.Ghost}"
+                            Height="28" MinHeight="28" Padding="11,0" Margin="12,0,0,0"
+                            FontSize="11.5" VerticalAlignment="Center"
+                            ToolTip="{loc:Tr Lang_Tooltip}" Click="Lang_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <ico:PackIconLucide Kind="Languages" Width="13" Height="13"
+                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="{loc:Tr Lang_Switch}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <!-- Status pill, centred across the whole bar -->
@@ -410,8 +457,8 @@
                                 <Ellipse.Fill><SolidColorBrush x:Name="StatusDot" Color="#5B6377"/></Ellipse.Fill>
                             </Ellipse>
                         </Grid>
-                        <TextBlock x:Name="StatusLabel" Text="آماده"
-                                   Foreground="{StaticResource TxtHi}" FontSize="12.5"
+                        <TextBlock x:Name="StatusLabel" Text="{loc:Tr Status_Ready}"
+                                   Foreground="{StaticResource TxtHi}" FontSize="13"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
@@ -423,12 +470,13 @@
                     <StackPanel x:Name="LobbyHeaderPanel"
                                 Orientation="Horizontal" VerticalAlignment="Center">
                         <Button x:Name="CancelOpBtn" Style="{StaticResource Btn.Danger}"
-                                Height="34" Padding="14,0" Visibility="Collapsed"
+                                Height="36" MinHeight="36" Padding="16,0" FontSize="12.5"
+                                Visibility="Collapsed"
                                 Click="CancelOp_Click">
                             <StackPanel Orientation="Horizontal">
                                 <ico:PackIconLucide Kind="X" Width="14" Height="14"
                                                     VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <TextBlock Text="لغو عملیات" VerticalAlignment="Center"/>
+                                <TextBlock Text="{loc:Tr Common_NeverMind}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
                     </StackPanel>
@@ -438,23 +486,23 @@
                                 Orientation="Horizontal" Visibility="Collapsed"
                                 VerticalAlignment="Center">
                         <Button x:Name="LeaveCloseBtn" Style="{StaticResource Btn.Danger}"
-                                IsEnabled="False" Padding="14,8" FontSize="12"
+                                IsEnabled="False" Height="36" MinHeight="36" Padding="16,0" FontSize="12.5"
                                 Click="LeaveClose_Click">
                             <StackPanel Orientation="Horizontal">
                                 <ico:PackIconLucide Kind="LogOut" Width="14" Height="14"
                                                     VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <TextBlock x:Name="LeaveCloseText" Text="خروج از Room" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="LeaveCloseText" Text="{loc:Tr Room_Leave}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
 
                         <StackPanel x:Name="HostIpPanel" Orientation="Horizontal"
                                     Margin="14,0,0,0" Visibility="Collapsed">
-                            <TextBlock x:Name="IpCopiedLabel" Text="کپی شد ✓"
+                            <TextBlock x:Name="IpCopiedLabel" Text="{loc:Tr Common_Copied}"
                                        Foreground="{StaticResource Ok}" FontSize="11"
                                        VerticalAlignment="Center" Margin="0,0,10,0" Opacity="0"/>
                             <Border Background="#151A27" CornerRadius="9" Padding="11,6" Cursor="Hand"
                                     BorderBrush="{StaticResource Stroke}" BorderThickness="1"
-                                    ToolTip="کلیک برای کپی"
+                                    ToolTip="{loc:Tr Common_ClickToCopy}"
                                     MouseLeftButtonUp="HostIpBorder_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <ico:PackIconLucide Kind="Copy" Width="13" Height="13"
@@ -505,7 +553,7 @@
                                 <ico:PackIconLucide Kind="Users" Width="14" Height="14"
                                                     Foreground="{StaticResource TxtLo}"
                                                     VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                <TextBlock Text="اعضای Room" Style="{StaticResource SectionLabel}"
+                                <TextBlock Text="{loc:Tr Room_Members}" Style="{StaticResource SectionLabel}"
                                            VerticalAlignment="Center"/>
                                 <Border Background="#1D2436" CornerRadius="6" Padding="6,1" Margin="8,0,0,0"
                                         VerticalAlignment="Center">
@@ -514,8 +562,8 @@
                                 </Border>
                             </StackPanel>
                             <Button Grid.Column="1" Style="{StaticResource Btn.IconSm}"
-                                    Width="22" Height="22" VerticalAlignment="Center"
-                                    ToolTip="بروزرسانی لیست اعضا" Click="RefreshMembers_Click">
+                                    Width="26" Height="26" VerticalAlignment="Center"
+                                    ToolTip="{loc:Tr Room_RefreshMembers}" Click="RefreshMembers_Click">
                                 <ico:PackIconLucide Kind="RefreshCw" Width="12" Height="12"/>
                             </Button>
                         </Grid>
@@ -534,7 +582,7 @@
                             <ico:PackIconLucide Kind="Network" Width="14" Height="14"
                                                 Foreground="{StaticResource TxtLo}"
                                                 VerticalAlignment="Center" Margin="0,0,7,0"/>
-                            <TextBlock Text="وضعیت اتصال" Style="{StaticResource SectionLabel}"
+                            <TextBlock Text="{loc:Tr Conn_Status}" Style="{StaticResource SectionLabel}"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
 
@@ -550,7 +598,7 @@
                             <StackPanel Grid.Column="0" HorizontalAlignment="Center">
                                 <TextBlock x:Name="DbgRole" Text="—" Style="{StaticResource Val}"
                                            HorizontalAlignment="Center"/>
-                                <TextBlock Text="نقش" Style="{StaticResource Lbl}"
+                                <TextBlock Text="{loc:Tr Conn_Role}" Style="{StaticResource Lbl}"
                                            HorizontalAlignment="Center" Margin="0,3,0,0"/>
                             </StackPanel>
 
@@ -569,7 +617,7 @@
                                 <ico:PackIconLucide x:Name="DbgEncIcon" Kind="ShieldOff" Width="14" Height="14"
                                                     Foreground="{StaticResource Warn}"
                                                     HorizontalAlignment="Center"/>
-                                <TextBlock x:Name="DbgEncryption" Text="بدون رمز"
+                                <TextBlock x:Name="DbgEncryption" Text="{loc:Tr Conn_NoEncryption}"
                                            Foreground="{StaticResource Warn}" FontSize="10.5"
                                            HorizontalAlignment="Center" Margin="0,3,0,0"/>
                             </StackPanel>
@@ -599,7 +647,7 @@
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
                             <Button x:Name="MicBtn" Style="{StaticResource Btn.Icon}"
                                     Background="{StaticResource OkGrad}" IsEnabled="False"
-                                    ToolTip="میکروفون" Click="Mic_Click">
+                                    ToolTip="{loc:Tr Audio_Mic}" Click="Mic_Click">
                                 <Grid>
                                     <ico:PackIconLucide x:Name="MicIcon" Kind="Mic" Width="18" Height="18"
                                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -614,7 +662,7 @@
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="میکروفون"
+                                    <TextBlock Grid.Column="0" Text="{loc:Tr Audio_Mic}"
                                                Foreground="{StaticResource TxtLo}" FontSize="10"/>
                                     <TextBox Grid.Column="1" x:Name="MicVolBox" Text="100%"
                                              Background="Transparent" BorderThickness="0" Padding="0"
@@ -644,7 +692,7 @@
 
                             <Button x:Name="SpeakerBtn" Style="{StaticResource Btn.Icon}"
                                     Background="{StaticResource OkGrad}" IsEnabled="False"
-                                    ToolTip="اسپیکر" Click="Speaker_Click">
+                                    ToolTip="{loc:Tr Audio_Speaker}" Click="Speaker_Click">
                                 <Grid>
                                     <ico:PackIconLucide x:Name="SpeakerIcon" Kind="Volume2" Width="18" Height="18"
                                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -659,7 +707,7 @@
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="اسپیکر"
+                                    <TextBlock Grid.Column="0" Text="{loc:Tr Audio_Speaker}"
                                                Foreground="{StaticResource TxtLo}" FontSize="10"/>
                                     <TextBox Grid.Column="1" x:Name="SpkVolBox" Text="100%"
                                              Background="Transparent" BorderThickness="0" Padding="0"
@@ -698,7 +746,7 @@
                                     <ico:PackIconLucide x:Name="ScreenShareIcon" Kind="MonitorUp"
                                                         Width="15" Height="15"
                                                         VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                    <TextBlock x:Name="ScreenShareText" Text="اشتراک صفحه"
+                                    <TextBlock x:Name="ScreenShareText" Text="{loc:Tr Share_Tab}"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
@@ -709,7 +757,10 @@
                 <!-- ══════════ LOBBY ══════════ -->
                 <!-- Scrolls when the window is too small to fit everything (e.g. not
                      maximized); when everything fits, there's nothing to scroll. -->
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <!-- Hidden, not Auto: the wheel still scrolls, but the bar no longer
+                     appears down the side of the lobby and reflows the centred content
+                     by its own width the moment the window gets short. -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
                 <Grid x:Name="LobbyActions"
                       HorizontalAlignment="Center" MaxWidth="760" Margin="0,16,0,16">
                     <Grid.RenderTransform><TranslateTransform x:Name="LobbySlide" Y="26"/></Grid.RenderTransform>
@@ -739,23 +790,23 @@
 
                             <!-- Identity: username -->
                             <StackPanel>
-                                <TextBlock Text="نام کاربری شما در Room" Style="{StaticResource Lbl}" Margin="0,0,0,8"/>
+                                <TextBlock Text="{loc:Tr Lobby_NameLabel}" Style="{StaticResource Lbl}" Margin="0,0,0,8"/>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="8"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="UsernameBox" Grid.Column="0" Text="کاربر"
-                                             Style="{StaticResource Inp}" Height="40" FontSize="13.5" FontWeight="SemiBold"
+                                    <TextBox x:Name="UsernameBox" Grid.Column="0"
+                                             Style="{StaticResource Inp}" Height="46" FontSize="14" FontWeight="SemiBold"
                                              LostFocus="UsernameBox_LostFocus" KeyDown="UsernameBox_KeyDown"/>
                                     <Button x:Name="SaveUsernameBtn" Grid.Column="2"
                                             Style="{StaticResource Btn.Ghost}"
-                                            Height="40" Padding="14,0" Click="SaveUsername_Click">
+                                            Height="46" Padding="18,0" Click="SaveUsername_Click">
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                             <ico:PackIconLucide x:Name="SaveIcon" Kind="Save" Width="14" Height="14"
                                                                 VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                            <TextBlock x:Name="SaveText" Text="ذخیره" VerticalAlignment="Center"/>
+                                            <TextBlock x:Name="SaveText" Text="{loc:Tr Common_Save}" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
                                 </Grid>
@@ -785,8 +836,8 @@
                                         <ico:PackIconLucide Grid.Column="0" Kind="Settings2" Width="13" Height="13"
                                                             Foreground="{StaticResource TxtLo}"
                                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <TextBlock Grid.Column="1" Text="تنظیمات شبکه (پورت، آداپتور)"
-                                                   Foreground="{StaticResource TxtLo}" FontSize="12" FontWeight="SemiBold"
+                                        <TextBlock Grid.Column="1" Text="{loc:Tr Lobby_NetSettings}"
+                                                   Foreground="{StaticResource TxtLo}" FontSize="12.5" FontWeight="SemiBold"
                                                    VerticalAlignment="Center" HorizontalAlignment="Right"/>
                                         <ico:PackIconLucide x:Name="NetSettingsChevron" Grid.Column="2" Kind="ChevronDown"
                                                             Width="13" Height="13" Foreground="{StaticResource TxtLo}"
@@ -811,21 +862,21 @@
                                     <ColumnDefinition Width="6"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="پورت اتصال"
+                                <TextBlock Grid.Column="0" Text="{loc:Tr Lobby_Port}"
                                            Style="{StaticResource Lbl}" VerticalAlignment="Center"/>
                                 <TextBox x:Name="PortBox" Grid.Column="2" Text="42777"
                                          Style="{StaticResource Inp}" FlowDirection="LeftToRight"
-                                         FontFamily="Consolas" FontSize="13" Height="36"
+                                         FontFamily="Consolas" FontSize="13.5" Height="40" MinHeight="40"
                                          LostFocus="PortBox_LostFocus" KeyDown="PortBox_KeyDown"
                                          PreviewTextInput="PortBox_PreviewTextInput"
                                          DataObject.Pasting="PortBox_Pasting"/>
                                 <ComboBox x:Name="AdapterBox" Grid.Column="4"
-                                          Style="{StaticResource Cmb}" Height="36"
+                                          Style="{StaticResource Cmb}" Height="40"
                                           FlowDirection="LeftToRight"
                                           SelectionChanged="AdapterBox_SelectionChanged"/>
                                 <Button Grid.Column="6" Style="{StaticResource Btn.IconSm}"
-                                        Width="28" Height="28" VerticalAlignment="Center"
-                                        ToolTip="بروزرسانی آداپتورها" Click="RefreshAdapters_Click">
+                                        Width="32" Height="32" VerticalAlignment="Center"
+                                        ToolTip="{loc:Tr Lobby_RefreshAdapters}" Click="RefreshAdapters_Click">
                                     <ico:PackIconLucide Kind="RefreshCw" Width="12" Height="12"/>
                                 </Button>
                             </Grid>
@@ -840,8 +891,8 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Border Grid.Column="0" Height="1" Background="{StaticResource StrokeSoft}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1" Text="یکی از دو مسیر را انتخاب کنید" Margin="14,0"
-                                   Foreground="{StaticResource TxtLo}" FontSize="11" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="1" Text="{loc:Tr Lobby_RoomDivider}" Margin="14,0"
+                                   Foreground="{StaticResource TxtLo}" FontSize="11.5" FontWeight="SemiBold"/>
                         <Border Grid.Column="2" Height="1" Background="{StaticResource StrokeSoft}" VerticalAlignment="Center"/>
                     </Grid>
 
@@ -856,28 +907,28 @@
                         <Border Grid.Column="0" Style="{StaticResource Card}">
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                                    <Border Width="46" Height="46" CornerRadius="13" Margin="0,0,14,0"
+                                    <Border Width="50" Height="50" CornerRadius="14" Margin="0,0,14,0"
                                             Background="{StaticResource AccentGrad}">
-                                        <ico:PackIconLucide Kind="Radio" Width="22" Height="22" Foreground="White"
+                                        <ico:PackIconLucide Kind="Radio" Width="24" Height="24" Foreground="White"
                                                             HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                     <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="ایجاد Room" Foreground="{StaticResource TxtHi}"
-                                                   FontSize="15" FontWeight="Bold"/>
-                                        <TextBlock Text="نقش: هاست" Foreground="{StaticResource TxtLo}"
-                                                   FontSize="11" Margin="0,3,0,0"/>
+                                        <TextBlock Text="{loc:Tr Lobby_CreateTitle}" Foreground="{StaticResource TxtHi}"
+                                                   FontSize="16" FontWeight="Bold"/>
+                                        <TextBlock Text="{loc:Tr Lobby_RoomSubtitle}" Foreground="{StaticResource TxtLo}"
+                                                   FontSize="11.5" Margin="0,3,0,0"/>
                                     </StackPanel>
                                 </StackPanel>
-                                <TextBlock Text="یک Room بسازید و IP خود را با مهمانان به اشتراک بگذارید."
-                                           Foreground="{StaticResource TxtMid}" FontSize="12.5"
-                                           TextWrapping="Wrap" LineHeight="21" Margin="0,0,0,18"/>
+                                <TextBlock Text="{loc:Tr Lobby_CreateBody}"
+                                           Foreground="{StaticResource TxtMid}" FontSize="13"
+                                           TextWrapping="Wrap" LineHeight="22" Margin="0,0,0,18"/>
                                 <Button x:Name="CreateBtn" Style="{StaticResource Btn.Primary}"
-                                        HorizontalAlignment="Stretch" Padding="0,12"
+                                        HorizontalAlignment="Stretch" Height="50"
                                         Click="CreateRoom_Click">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                        <ico:PackIconLucide Kind="Plus" Width="16" Height="16"
+                                        <ico:PackIconLucide Kind="Plus" Width="17" Height="17"
                                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <TextBlock Text="ساخت Room" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{loc:Tr Lobby_CreateBtn}" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
@@ -887,23 +938,22 @@
                         <Border Grid.Column="2" Style="{StaticResource Card}">
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                                    <Border Width="46" Height="46" CornerRadius="13" Margin="0,0,14,0"
+                                    <Border Width="50" Height="50" CornerRadius="14" Margin="0,0,14,0"
                                             Background="{StaticResource OkGrad}">
-                                        <ico:PackIconLucide Kind="Link" Width="21" Height="21" Foreground="White"
+                                        <ico:PackIconLucide Kind="Link" Width="23" Height="23" Foreground="White"
                                                             HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                     <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="اتصال به Room" Foreground="{StaticResource TxtHi}"
-                                                   FontSize="15" FontWeight="Bold"/>
-                                        <TextBlock Text="نقش: مهمان" Foreground="{StaticResource TxtLo}"
-                                                   FontSize="11" Margin="0,3,0,0"/>
+                                        <TextBlock Text="{loc:Tr Lobby_JoinTitle}" Foreground="{StaticResource TxtHi}"
+                                                   FontSize="16" FontWeight="Bold"/>
+                                        <TextBlock Text="{loc:Tr Lobby_RoomSubtitle}" Foreground="{StaticResource TxtLo}"
+                                                   FontSize="11.5" Margin="0,3,0,0"/>
                                     </StackPanel>
                                 </StackPanel>
-                                <TextBlock Foreground="{StaticResource TxtMid}" FontSize="12.5"
-                                           TextWrapping="Wrap" LineHeight="21" Margin="0,0,0,14">
-                                    <Run>IP هاست را وارد کنید (مثال: </Run>
+                                <TextBlock Foreground="{StaticResource TxtMid}" FontSize="13"
+                                           TextWrapping="Wrap" LineHeight="22" Margin="0,0,0,14">
+                                    <Run Text="{loc:Tr Lobby_JoinBody}"/>
                                     <Run FontFamily="Consolas" FlowDirection="LeftToRight" Foreground="#8B5CF6">10.88.1.5</Run>
-                                    <Run>)</Run>
                                 </TextBlock>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -914,16 +964,16 @@
                                     <TextBox x:Name="JoinCodeBox" Style="{StaticResource Inp}"
                                              MinWidth="150" MaxWidth="220" HorizontalAlignment="Stretch"
                                              FlowDirection="LeftToRight" FontFamily="Consolas"
-                                             FontSize="13" Height="42"
+                                             FontSize="13.5" Height="50"
                                              PreviewTextInput="JoinCodeBox_PreviewTextInput"
                                              DataObject.Pasting="JoinCodeBox_Pasting"
                                              LostFocus="JoinCodeBox_LostFocus" KeyDown="JoinCodeBox_KeyDown"/>
                                     <Button Grid.Column="2" x:Name="JoinBtn" Style="{StaticResource Btn.Success}"
-                                            Padding="16,0" Height="42" Click="Join_Click">
+                                            Padding="20,0" Height="50" Click="Join_Click">
                                         <StackPanel Orientation="Horizontal">
-                                            <ico:PackIconLucide Kind="Plug" Width="15" Height="15"
-                                                                VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                            <TextBlock Text="اتصال" VerticalAlignment="Center"/>
+                                            <ico:PackIconLucide Kind="Plug" Width="16" Height="16"
+                                                                VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBlock Text="{loc:Tr Lobby_JoinBtn}" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
                                 </Grid>
@@ -934,30 +984,95 @@
                     <!-- ══════════ VIRTUAL LAN (standalone — not tied to a Room) ══════════ -->
                     <Border Grid.Row="3" Style="{StaticResource Card}" Margin="0,14,0,0" Padding="20,17">
                         <StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                <Border Width="42" Height="42" CornerRadius="12" Margin="0,0,13,0"
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                                <Border Width="50" Height="50" CornerRadius="14" Margin="0,0,14,0"
                                         Background="{StaticResource AccentGrad}">
-                                    <ico:PackIconLucide Kind="Network" Width="20" Height="20" Foreground="White"
+                                    <ico:PackIconLucide Kind="Network" Width="23" Height="23" Foreground="White"
                                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="شبکه‌ی مجازی (LAN)" Foreground="{StaticResource TxtHi}"
-                                               FontSize="15" FontWeight="Bold"/>
-                                    <TextBlock Text="مستقل از Room — برای بازی‌های شبکه‌ای" Foreground="{StaticResource TxtLo}"
-                                               FontSize="11" Margin="0,3,0,0"/>
+                                    <TextBlock Text="{loc:Tr Vlan_Title}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="16" FontWeight="Bold"/>
+                                    <TextBlock Text="{loc:Tr Vlan_Subtitle}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" Margin="0,3,0,0"/>
                                 </StackPanel>
                             </StackPanel>
 
-                            <!-- Host-only: this app creates a virtual LAN, it doesn't join one. -->
+                            <!--
+                              Room and virtual LAN solve different problems and the names
+                              do not make that obvious, so say it outright. Users were
+                              expected to infer it and there is no reason they would.
+                            -->
+                            <Border Background="#141926" CornerRadius="10" Padding="13,10"
+                                    Margin="0,0,0,14">
+                                <StackPanel Orientation="Horizontal">
+                                    <ico:PackIconLucide Kind="Info" Width="15" Height="15"
+                                                        Foreground="{StaticResource Accent2}"
+                                                        VerticalAlignment="Top" Margin="0,2,9,0"/>
+                                    <TextBlock Foreground="{StaticResource TxtMid}" FontSize="12"
+                                               TextWrapping="Wrap" LineHeight="21" MaxWidth="620">
+                                        <Run Text="{loc:Tr Vlan_DiffLead}" FontWeight="Bold"
+                                             Foreground="{StaticResource TxtHi}"/>
+                                        <Run Text="{loc:Tr Vlan_DiffBody}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+
+                            <!--
+                              Two ways in, and both are required: one machine hosts, the
+                              rest reach it by its real IP. With only the host button the
+                              feature could never connect anybody — every user sat alone
+                              on their own adapter.
+                            -->
                             <StackPanel x:Name="VlanIdlePanel">
                                 <Button x:Name="VlanHostBtn" Style="{StaticResource Btn.Primary}"
-                                        HorizontalAlignment="Stretch" Padding="0,11" Click="VlanHost_Click">
+                                        HorizontalAlignment="Stretch" Height="50" Click="VlanHost_Click">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                        <ico:PackIconLucide Kind="Radio" Width="15" Height="15"
+                                        <ico:PackIconLucide Kind="Radio" Width="17" Height="17"
                                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <TextBlock Text="میزبانیِ شبکه‌ی مجازی" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{loc:Tr Vlan_HostBtn}" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
+
+                                <Grid Margin="0,14,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Height="1" Background="{StaticResource StrokeSoft}"
+                                            VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{loc:Tr Vlan_JoinDivider}" Margin="12,0"
+                                               Foreground="{StaticResource TxtLo}" FontSize="11"
+                                               FontWeight="SemiBold"/>
+                                    <Border Grid.Column="2" Height="1" Background="{StaticResource StrokeSoft}"
+                                            VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="9"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="VlanJoinIpBox" Grid.Column="0"
+                                             Style="{StaticResource Inp}" Height="46"
+                                             FlowDirection="LeftToRight" FontFamily="Consolas" FontSize="13.5"
+                                             PreviewTextInput="JoinCodeBox_PreviewTextInput"
+                                             DataObject.Pasting="JoinCodeBox_Pasting"
+                                             KeyDown="VlanJoinIpBox_KeyDown"/>
+                                    <Button Grid.Column="2" x:Name="VlanJoinBtn" Style="{StaticResource Btn.Success}"
+                                            Height="46" Padding="20,0" Click="VlanJoin_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <ico:PackIconLucide Kind="Plug" Width="16" Height="16"
+                                                                VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBlock Text="{loc:Tr Lobby_JoinBtn}" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+                                <TextBlock Text="{loc:Tr Vlan_JoinHint}"
+                                           Foreground="{StaticResource TxtLo}" FontSize="11"
+                                           Margin="2,8,0,0"/>
                             </StackPanel>
 
                             <!-- Active: assigned IP + disconnect -->
@@ -969,29 +1084,54 @@
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="IP شما:" Foreground="{StaticResource TxtLo}"
-                                               FontSize="12.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <Border Grid.Column="1" Background="{StaticResource InputBg}" CornerRadius="9"
-                                            BorderBrush="{StaticResource Stroke}" BorderThickness="1" Padding="12,8">
+                                    <TextBlock Grid.Column="0" Text="{loc:Tr Vlan_YourIp}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Border Grid.Column="1" Background="{StaticResource InputBg}" CornerRadius="10"
+                                            BorderBrush="{StaticResource Stroke}" BorderThickness="1"
+                                            Height="44" Padding="14,0">
                                         <TextBlock x:Name="VlanIpText" Text="—" Foreground="{StaticResource Accent2}"
-                                                   FontFamily="Consolas" FontSize="13.5" FontWeight="Bold"
+                                                   FontFamily="Consolas" FontSize="14" FontWeight="Bold"
+                                                   VerticalAlignment="Center"
                                                    FlowDirection="LeftToRight"/>
                                     </Border>
                                     <Button Grid.Column="2" x:Name="VlanCopyBtn" Style="{StaticResource Btn.Ghost}"
-                                            Padding="14,0" Height="38" Margin="8,0,0,0" Click="VlanCopy_Click">
-                                        <TextBlock Text="کپی" VerticalAlignment="Center"/>
+                                            Padding="18,0" Height="44" Margin="8,0,0,0" Click="VlanCopy_Click">
+                                        <TextBlock Text="{loc:Tr Common_Copy}" VerticalAlignment="Center"/>
                                     </Button>
                                     <TextBlock Grid.Column="3" x:Name="VlanCopied" Text="✓" Foreground="{StaticResource Ok}"
                                                FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0"/>
                                 </Grid>
-                                <TextBlock x:Name="VlanStatusText" Text="" Foreground="{StaticResource TxtLo}"
-                                           FontSize="11" Margin="2,0,0,10"/>
-                                <Button x:Name="VlanDisconnectBtn" Style="{StaticResource Btn.Danger}"
-                                        HorizontalAlignment="Stretch" Padding="0,10" Click="VlanDisconnect_Click">
+                                <!--
+                                  The join address is an action, not a second address to
+                                  read. Showing both as "IP" side by side was the single
+                                  most confusing thing in this card: users could not tell
+                                  which one went into the game.
+                                -->
+                                <Button x:Name="VlanInviteBtn" Style="{StaticResource Btn.Ghost}"
+                                        HorizontalAlignment="Stretch" Height="44" Margin="0,0,0,10"
+                                        Visibility="Collapsed" Click="VlanInviteCopy_Click">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                        <ico:PackIconLucide Kind="Power" Width="14" Height="14"
-                                                            VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                        <TextBlock Text="قطع شبکه‌ی مجازی" VerticalAlignment="Center"/>
+                                        <ico:PackIconLucide Kind="UserPlus" Width="15" Height="15"
+                                                            VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="{loc:Tr Vlan_CopyInvite}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <StackPanel Orientation="Horizontal" Margin="2,0,0,10">
+                                    <Border Background="#1D2436" CornerRadius="6" Padding="8,2"
+                                            VerticalAlignment="Center" Margin="0,0,8,0">
+                                        <TextBlock x:Name="VlanRoleText" Text="—" FontSize="10.5"
+                                                   FontWeight="Bold" Foreground="{StaticResource Accent2}"/>
+                                    </Border>
+                                    <TextBlock x:Name="VlanStatusText" Text="" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Button x:Name="VlanDisconnectBtn" Style="{StaticResource Btn.Danger}"
+                                        HorizontalAlignment="Stretch" Height="48" Click="VlanDisconnect_Click">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <ico:PackIconLucide Kind="Power" Width="16" Height="16"
+                                                            VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="{loc:Tr Vlan_StopBtn}" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
@@ -1004,9 +1144,9 @@
                             HorizontalAlignment="Center" Margin="0,10,0,0"
                             Click="NavDonate_Click">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <ico:PackIconLucide Kind="Heart" Width="14" Height="14"
+                            <ico:PackIconLucide Kind="Heart" Width="15" Height="15"
                                                 VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBlock Text="حمایت از پروژه" FontSize="12.5" VerticalAlignment="Center"/>
+                            <TextBlock Text="{loc:Tr Nav_Donate}" FontSize="13" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                 </Grid>
@@ -1027,18 +1167,19 @@
                         <!-- Tab bar -->
                         <Border Grid.Row="0" BorderBrush="{StaticResource StrokeSoft}" BorderThickness="0,0,0,1">
                             <StackPanel Orientation="Horizontal" Margin="4,0">
-                                <Button x:Name="TabChatBtn"  Style="{StaticResource Tab.Active}" Content="چت"
+                                <Button x:Name="TabChatBtn"  Style="{StaticResource Tab.Active}" Content="{loc:Tr Tab_Chat}"
                                         Tag="chat"  Click="Tab_Click"/>
-                                <Button x:Name="TabFilesBtn" Style="{StaticResource Tab.Btn}"    Content="فایل‌ها"
+                                <Button x:Name="TabFilesBtn" Style="{StaticResource Tab.Btn}"    Content="{loc:Tr Tab_Files}"
                                         Tag="files" Click="Tab_Click"/>
-                                <Button x:Name="TabShareBtn" Style="{StaticResource Tab.Btn}"    Content="اشتراک صفحه"
+                                <Button x:Name="TabShareBtn" Style="{StaticResource Tab.Btn}"    Content="{loc:Tr Share_Tab}"
                                         Tag="share" Click="Tab_Click" Visibility="Collapsed"/>
                             </StackPanel>
                         </Border>
 
-                        <!-- Chat messages -->
+                        <!-- Chat messages. Sunk a shade below the panel so the bubbles read as
+                             floating on a canvas, the way a messenger's conversation area does. -->
                         <ListBox Grid.Row="1" x:Name="ChatList"
-                                 Background="Transparent" BorderThickness="0" Padding="6,10"
+                                 Background="#0E121C" BorderThickness="0" Padding="8,12"
                                  ItemContainerStyle="{StaticResource BareItem}"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  VirtualizingPanel.ScrollUnit="Pixel"
@@ -1055,7 +1196,7 @@
                         <Grid Grid.Row="1" x:Name="ShareViewArea" Background="#080B12" Visibility="Collapsed">
                             <Image x:Name="ScreenShareImg" Stretch="Uniform"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="SharePlaceholder" Text="در انتظار تصویر..."
+                            <TextBlock x:Name="SharePlaceholder" Text="{loc:Tr Share_Waiting}"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                        Foreground="{StaticResource TxtLo}" FontSize="13"
                                        Visibility="Collapsed"/>
@@ -1083,15 +1224,15 @@
                                                TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                                 </StackPanel>
                                 <Button Grid.Column="2" Style="{StaticResource Btn.IconSm}"
-                                        ToolTip="لغو پاسخ" Click="CancelReply_Click">
+                                        ToolTip="{loc:Tr Reply_Cancel}" Click="CancelReply_Click">
                                     <ico:PackIconLucide Kind="X" Width="13" Height="13"/>
                                 </Button>
                             </Grid>
                         </Border>
 
-                        <!-- Composer (chat tab only) -->
-                        <Border Grid.Row="3" x:Name="Composer" Margin="12,0,12,12"
-                                Background="{StaticResource InputBg}" CornerRadius="12"
+                        <!-- Composer (chat tab only) — pill-shaped, messenger style -->
+                        <Border Grid.Row="3" x:Name="Composer" Margin="12,10,12,12"
+                                Background="#1A2030" CornerRadius="24"
                                 BorderBrush="{StaticResource Stroke}" BorderThickness="1">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -1102,15 +1243,16 @@
                                 </Grid.ColumnDefinitions>
 
                                 <Button Grid.Column="0" x:Name="SendFileBtn" Style="{StaticResource Btn.IconSm}"
-                                        Width="38" Height="44" IsEnabled="False" ToolTip="ارسال فایل"
+                                        Width="40" Height="48" Margin="5,0,0,0"
+                                        IsEnabled="False" ToolTip="{loc:Tr Composer_SendFile}"
                                         Click="SendFile_Click">
-                                    <ico:PackIconLucide Kind="Paperclip" Width="17" Height="17"/>
+                                    <ico:PackIconLucide Kind="Paperclip" Width="18" Height="18"/>
                                 </Button>
 
                                 <Button Grid.Column="1" x:Name="EmojiBtn" Style="{StaticResource Btn.IconSm}"
-                                        Width="38" Height="44" ToolTip="ایموجی"
+                                        Width="40" Height="48" ToolTip="{loc:Tr Composer_Emoji}"
                                         Click="EmojiBtn_Click">
-                                    <ico:PackIconLucide Kind="Smile" Width="19" Height="19"/>
+                                    <ico:PackIconLucide Kind="Smile" Width="20" Height="20"/>
                                 </Button>
 
                                 <RichTextBox Grid.Column="2" x:Name="ChatInput"
@@ -1119,8 +1261,8 @@
                                          CaretBrush="{StaticResource Accent}"
                                          SelectionBrush="{StaticResource Accent}"
                                          SelectionOpacity="0.45"
-                                         FontFamily="Vazir, Segoe UI, Tahoma"
-                                         FontSize="13.5" Height="44" Padding="4,0,4,0"
+                                         FontFamily="{StaticResource UiFont}"
+                                         FontSize="14" Height="48" Padding="6,0,6,0"
                                          AcceptsReturn="False"
                                          HorizontalScrollBarVisibility="Disabled"
                                          VerticalScrollBarVisibility="Disabled"
@@ -1137,10 +1279,10 @@
                                 </RichTextBox>
 
                                 <Button Grid.Column="3" x:Name="SendBtn" Style="{StaticResource Btn.Icon}"
-                                        Width="34" Height="34" Margin="5"
+                                        Width="38" Height="38" Margin="5"
                                         Background="{StaticResource AccentGrad}"
-                                        ToolTip="ارسال" Click="SendChat_Click">
-                                    <ico:PackIconLucide Kind="Send" Width="15" Height="15" Foreground="White"/>
+                                        ToolTip="{loc:Tr Composer_Send}" Click="SendChat_Click">
+                                    <ico:PackIconLucide Kind="Send" Width="16" Height="16" Foreground="White"/>
                                 </Button>
                             </Grid>
                         </Border>
@@ -1158,10 +1300,270 @@
         </Grid>
 
         <!-- ══════════ TOAST OVERLAY ══════════ -->
+        <!--
+          Bottom corner rather than mid-screen: transient feedback shouldn't land on
+          top of whatever the user is reading. The bottom margin clears the composer.
+          Under RTL, HorizontalAlignment="Right" is the physical LEFT edge — away from
+          the member sidebar. The panel has no background, so only the toasts
+          themselves take the mouse; each one is dismissable.
+        -->
         <StackPanel x:Name="ToastPanel" Grid.RowSpan="3"
-                    VerticalAlignment="Center" HorizontalAlignment="Center"
-                    Margin="0,-80,0,0" Width="320"
-                    IsHitTestVisible="False"/>
+                    VerticalAlignment="Bottom" HorizontalAlignment="Right"
+                    Margin="18,0,18,86" Width="330"/>
+
+        <!-- ══════════ UPDATE GATE ══════════ -->
+        <!--
+          Covers the whole window on launch while the manifest is checked, and again on a
+          manual check. Four states share one card: Checking / UpToDate / Available /
+          Failed. Declared before the modal overlay so a confirmation raised from inside
+          the gate (the release-notes link) still draws on top of it.
+        -->
+        <Grid x:Name="UpdateGate" Grid.RowSpan="3" Background="#F20A0C11"
+              Visibility="Collapsed">
+            <Border Background="{StaticResource Elevated}" CornerRadius="18"
+                    BorderBrush="{StaticResource StrokeSoft}" BorderThickness="1"
+                    Padding="34,30" Width="430"
+                    Effect="{StaticResource SoftShadow}"
+                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                <StackPanel>
+
+                    <!-- Brand mark -->
+                    <Border Width="62" Height="62" CornerRadius="18" Padding="7"
+                            Background="#1A1F2E" HorizontalAlignment="Center"
+                            Margin="0,0,0,18">
+                        <Image Source="pack://application:,,,/Assets/logo.png"
+                               RenderOptions.BitmapScalingMode="Fant"/>
+                    </Border>
+
+                    <TextBlock x:Name="UpdateTitle" Text="{loc:Tr Update_CheckTitle}"
+                               FontSize="17" FontWeight="Bold"
+                               Foreground="{StaticResource TxtHi}"
+                               TextAlignment="Center" HorizontalAlignment="Center"/>
+
+                    <TextBlock x:Name="UpdateMessage" Text="{loc:Tr Common_OneMoment}"
+                               FontSize="13" Foreground="{StaticResource TxtMid}"
+                               TextWrapping="Wrap" TextAlignment="Center" LineHeight="22"
+                               Margin="0,9,0,0"/>
+
+                    <!-- Version pills: current → latest -->
+                    <StackPanel x:Name="UpdateVersions" Orientation="Horizontal"
+                                HorizontalAlignment="Center" Margin="0,16,0,0"
+                                FlowDirection="LeftToRight" Visibility="Collapsed">
+                        <Border Background="#161B28" CornerRadius="8" Padding="11,5"
+                                BorderBrush="{StaticResource Stroke}" BorderThickness="1">
+                            <TextBlock x:Name="UpdateFromText" FontFamily="Consolas" FontSize="12.5"
+                                       Foreground="{StaticResource TxtLo}"/>
+                        </Border>
+                        <ico:PackIconLucide Kind="ArrowRight" Width="15" Height="15" Margin="9,0"
+                                            Foreground="{StaticResource TxtLo}"
+                                            VerticalAlignment="Center"/>
+                        <Border Background="#1D2436" CornerRadius="8" Padding="11,5"
+                                BorderBrush="{StaticResource Accent}" BorderThickness="1">
+                            <TextBlock x:Name="UpdateToText" FontFamily="Consolas" FontSize="12.5"
+                                       FontWeight="Bold" Foreground="{StaticResource Accent2}"/>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Indeterminate sweep while checking, real progress while downloading -->
+                    <Border x:Name="UpdateBarTrack" Height="6" CornerRadius="3"
+                            Background="#161B28" Margin="0,22,0,0" ClipToBounds="True">
+                        <Grid HorizontalAlignment="Stretch">
+                            <Border x:Name="UpdateBarFill" CornerRadius="3"
+                                    Background="{StaticResource AccentGrad}"
+                                    HorizontalAlignment="Left" Width="0"/>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock x:Name="UpdateHint" Text=""
+                               FontSize="11.5" Foreground="{StaticResource TxtLo}"
+                               TextAlignment="Center" Margin="0,9,0,0"
+                               Visibility="Collapsed"/>
+
+                    <StackPanel x:Name="UpdateButtons" Orientation="Horizontal"
+                                HorizontalAlignment="Center" Margin="0,22,0,0"
+                                Visibility="Collapsed">
+                        <Button x:Name="UpdateNowBtn" Style="{StaticResource Btn.Primary}"
+                                Height="46" Padding="26,0" Margin="0,0,9,0"
+                                Click="UpdateNow_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <ico:PackIconLucide Kind="Download" Width="16" Height="16"
+                                                    VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Text="{loc:Tr Update_Now}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="UpdateLaterBtn" Style="{StaticResource Btn.Ghost}"
+                                Height="46" Padding="22,0" Click="UpdateLater_Click"
+                                Content="{loc:Tr Common_Later}"/>
+                        <Button x:Name="UpdateCloseBtn" Style="{StaticResource Btn.Ghost}"
+                                Height="46" Padding="26,0" Click="UpdateLater_Click"
+                                Content="{loc:Tr Common_Ok}" Visibility="Collapsed"/>
+                    </StackPanel>
+
+                    <!-- Release notes. Navigation bubbles to the window-level
+                         RequestNavigate handler, which confirms before opening. -->
+                    <TextBlock x:Name="UpdateNotesLink" HorizontalAlignment="Center"
+                               Margin="0,14,0,0" Visibility="Collapsed">
+                        <Hyperlink x:Name="UpdateNotesHyper"
+                                   Foreground="{StaticResource Accent2}"
+                                   TextDecorations="None">
+                            <Run Text="{loc:Tr Update_Notes}" FontSize="11.5"/>
+                        </Hyperlink>
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- ══════════ VLAN PRE-FLIGHT ══════════ -->
+        <!--
+          Runs before the virtual LAN comes up and shows every condition that can quietly
+          break it, each resolving to a tick, a warning or a cross. The rows are built in
+          code so they can update live as each check finishes.
+        -->
+        <Grid x:Name="VlanPreflight" Grid.RowSpan="3" Background="#F20A0C11"
+              Visibility="Collapsed">
+            <Border Background="{StaticResource Elevated}" CornerRadius="18"
+                    BorderBrush="{StaticResource StrokeSoft}" BorderThickness="1"
+                    Padding="32,28" Width="500"
+                    Effect="{StaticResource SoftShadow}"
+                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                        <Border Width="48" Height="48" CornerRadius="14" Margin="0,0,14,0"
+                                Background="{StaticResource AccentGrad}">
+                            <ico:PackIconLucide Kind="Network" Width="23" Height="23" Foreground="White"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{loc:Tr Preflight_Title}" FontSize="17" FontWeight="Bold"
+                                       Foreground="{StaticResource TxtHi}"/>
+                            <TextBlock x:Name="PreflightSubtitle" Text="{loc:Tr Common_OneMoment}" FontSize="12"
+                                       Foreground="{StaticResource TxtLo}" Margin="0,3,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel x:Name="PreflightList"/>
+
+                    <Border x:Name="PreflightSummary" CornerRadius="10" Padding="14,11"
+                            Margin="0,8,0,0" Visibility="Collapsed">
+                        <TextBlock x:Name="PreflightSummaryText" FontSize="12.5"
+                                   TextWrapping="Wrap" LineHeight="21"/>
+                    </Border>
+
+                    <StackPanel x:Name="PreflightButtons" Orientation="Horizontal"
+                                HorizontalAlignment="Center" Margin="0,20,0,0"
+                                Visibility="Collapsed">
+                        <Button x:Name="PreflightGoBtn" Style="{StaticResource Btn.Primary}"
+                                Height="46" Padding="26,0" Margin="0,0,9,0"
+                                Click="PreflightGo_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <ico:PackIconLucide Kind="Radio" Width="16" Height="16"
+                                                    VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock x:Name="PreflightGoText" Text="{loc:Tr Preflight_Go}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="PreflightHelpBtn" Style="{StaticResource Btn.Ghost}"
+                                Height="46" Padding="20,0" Margin="0,0,9,0"
+                                Click="PreflightHelp_Click" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal">
+                                <ico:PackIconLucide Kind="Info" Width="15" Height="15"
+                                                    VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Text="{loc:Tr Preflight_Help}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource Btn.Ghost}" Height="46" Padding="20,0"
+                                Click="PreflightClose_Click" Content="{loc:Tr Common_NeverMind}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- ══════════ UPnP HELP ══════════ -->
+        <!--
+          Shown when the pre-flight probe says hosting would not be reachable. The steps
+          are built in code because they differ per diagnosis and name the user's own
+          router and addresses — generic instructions are the reason people give up here.
+        -->
+        <Grid x:Name="UpnpHelp" Grid.RowSpan="3" Background="#F20A0C11"
+              Visibility="Collapsed">
+            <Border Background="{StaticResource Elevated}" CornerRadius="18"
+                    BorderBrush="{StaticResource StrokeSoft}" BorderThickness="1"
+                    Padding="30,26" Width="520" MaxHeight="620"
+                    Effect="{StaticResource SoftShadow}"
+                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                            <Border x:Name="UpnpIconChip" Width="46" Height="46" CornerRadius="14"
+                                    Background="#26F59E0B" Margin="0,0,14,0">
+                                <ico:PackIconLucide x:Name="UpnpIcon" Kind="WifiOff" Width="22" Height="22"
+                                                    Foreground="{StaticResource Warn}"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock x:Name="UpnpTitle" Text="" FontSize="17" FontWeight="Bold"
+                                           Foreground="{StaticResource TxtHi}"/>
+                                <TextBlock x:Name="UpnpSubtitle" Text="" FontSize="12"
+                                           Foreground="{StaticResource TxtLo}" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TextBlock x:Name="UpnpExplain" Text="" FontSize="13"
+                                   Foreground="{StaticResource TxtMid}"
+                                   TextWrapping="Wrap" LineHeight="23" Margin="0,0,0,6"/>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden"
+                                  HorizontalScrollBarVisibility="Disabled" Margin="0,10,0,0">
+                        <StackPanel x:Name="UpnpSteps"/>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal"
+                                HorizontalAlignment="Center" Margin="0,20,0,0">
+                        <Button x:Name="UpnpRetryBtn" Style="{StaticResource Btn.Primary}"
+                                Height="46" Padding="24,0" Margin="0,0,9,0"
+                                Click="UpnpRetry_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <ico:PackIconLucide Kind="RefreshCw" Width="15" Height="15"
+                                                    VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Text="{loc:Tr Common_Retry}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="UpnpAnywayBtn" Style="{StaticResource Btn.Ghost}"
+                                Height="46" Padding="20,0" Margin="0,0,9,0"
+                                Click="UpnpAnyway_Click"
+                                Content="{loc:Tr Preflight_Anyway}"/>
+                        <Button Style="{StaticResource Btn.Ghost}"
+                                Height="46" Padding="20,0" Click="UpnpClose_Click"
+                                Content="{loc:Tr Common_NeverMind}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ══════════ SHUTDOWN ══════════ -->
+        <!-- Shown while the virtual LAN is taken down on close, so the couple of seconds
+             that costs reads as work in progress rather than a frozen window. -->
+        <Grid x:Name="ShutdownOverlay" Grid.RowSpan="3" Background="#F20A0C11"
+              Visibility="Collapsed">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Border Width="58" Height="58" CornerRadius="16" Padding="7"
+                        Background="#1A1F2E" HorizontalAlignment="Center" Margin="0,0,0,16">
+                    <Image Source="pack://application:,,,/Assets/logo.png"
+                           RenderOptions.BitmapScalingMode="Fant"/>
+                </Border>
+                <TextBlock Text="{loc:Tr Shutdown_Title}" FontSize="14" FontWeight="SemiBold"
+                           Foreground="{StaticResource TxtHi}" HorizontalAlignment="Center"/>
+                <TextBlock Text="{loc:Tr Shutdown_Body}"
+                           FontSize="12" Foreground="{StaticResource TxtLo}"
+                           HorizontalAlignment="Center" Margin="0,7,0,0"/>
+            </StackPanel>
+        </Grid>
 
         <!-- ══════════ MODAL OVERLAY ══════════ -->
         <Grid x:Name="ModalOverlay" Grid.RowSpan="3" Background="#B0000000"
@@ -1171,7 +1573,7 @@
                     Padding="30,28" MaxWidth="420"
                     VerticalAlignment="Center" HorizontalAlignment="Center"
                     MouseLeftButtonDown="ModalDialog_StopPropagation">
-                <StackPanel FlowDirection="RightToLeft">
+                <StackPanel FlowDirection="{Binding Flow, Source={x:Static loc:Loc.I}}">
                     <TextBlock x:Name="ModalTitle" FontSize="15.5" FontWeight="Bold"
                                Foreground="{StaticResource TxtHi}" TextWrapping="Wrap"
                                TextAlignment="Center" Margin="0,0,0,10"/>
@@ -1191,7 +1593,7 @@
                            HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Run Text="Virtual LAN Platform"/>
                     <Run Text=" · "/>
-                    <Run Text="v1.0.7" FontFamily="Consolas"/>
+                    <Run Text="v1.0.8" FontFamily="Consolas"/>
                 </TextBlock>
                 <Button Style="{StaticResource Btn.Nav}" HorizontalAlignment="Left"
                         Foreground="{StaticResource TxtLo}" Padding="8,4"
@@ -1199,7 +1601,7 @@
                     <StackPanel Orientation="Horizontal">
                         <ico:PackIconLucide Kind="RefreshCw" Width="12" Height="12"
                                             VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock Text="بررسی بروزرسانی" FontSize="10.5" VerticalAlignment="Center"/>
+                        <TextBlock Text="{loc:Tr Update_CheckTitle}" FontSize="10.5" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
             </Grid>

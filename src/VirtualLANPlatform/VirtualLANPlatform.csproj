@@ -9,9 +9,9 @@
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>VirtualLANPlatform</AssemblyName>
     <RootNamespace>VirtualLANPlatform</RootNamespace>
-    <Version>1.0.7.0</Version>
-    <AssemblyVersion>1.0.7.0</AssemblyVersion>
-    <FileVersion>1.0.7.0</FileVersion>
+    <Version>1.0.8.0</Version>
+    <AssemblyVersion>1.0.8.0</AssemblyVersion>
+    <FileVersion>1.0.8.0</FileVersion>
     <Product>Virtual LAN Platform</Product>
     <ApplicationIcon>Assets\logo.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
@@ -22,7 +22,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Autoupdater.NET.Official" Version="1.9.3" />
     <PackageReference Include="Emoji.Wpf" Version="0.3.4" />
     <PackageReference Include="LiteNetLib" Version="1.1.0" />
     <PackageReference Include="MahApps.Metro.IconPacks.Lucide" Version="6.2.1" />
@@ -38,6 +37,10 @@
     <None Include="Assets\wintun.dll" CopyToOutputDirectory="Always" TargetPath="wintun.dll" />
     <Resource Include="Assets\logo.png" />
     <Resource Include="Assets\logo.ico" />
+    <!-- Vazirmatn (SIL OFL) — the maintained successor to Vazir. Bundled so Persian
+         text renders correctly on machines that don't have a Persian UI font installed,
+         instead of silently falling back to Segoe UI. -->
+    <Resource Include="Assets\Fonts\*.ttf" />
     <!-- 3D emoji set — curated subset from bignutty/fluent-emoji (MIT), mirroring Microsoft's Fluent Emoji -->
     <Resource Include="Assets\Emoji3D\*.png" />
   </ItemGroup>

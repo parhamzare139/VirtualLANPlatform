@@ -7,6 +7,8 @@ using LiteNetLib.Utils;
 using VirtualLANPlatform.Core.Protocol;
 using VirtualLANPlatform.Core.Security;
 
+using VirtualLANPlatform.UI.Localization;
+
 namespace VirtualLANPlatform.Core.Networking;
 
 public enum PeerRole { None, Host, Guest }
@@ -60,13 +62,13 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
         if (!started)
         {
-            ConnectionFailed?.Invoke("Host شروع نشد", $"پورت {port} در دسترس نیست.");
+            ConnectionFailed?.Invoke(Loc.T("P2p_HostFailTitle"), Loc.T("P2p_PortBusy", port));
             return Task.FromResult((false, "", (ushort)0));
         }
 
         IsRunning = true;
         StartPollLoop();
-        StatusChanged?.Invoke("آماده — منتظر اتصال");
+        StatusChanged?.Invoke(Loc.T("P2p_HostReady"));
         return Task.FromResult((true, localIp ?? GetLocalIP(), port));
     }
 
@@ -88,13 +90,13 @@ public sealed class P2PManager : INetEventListener, IDisposable
         _net = BuildNetManager();
         if (!_net.Start())
         {
-            ConnectionFailed?.Invoke("Guest شروع نشد", "خطا در راه‌اندازی شبکه.");
+            ConnectionFailed?.Invoke(Loc.T("P2p_GuestFailTitle"), Loc.T("P2p_NetInitFail"));
             return false;
         }
 
         IsRunning = true;
         StartPollLoop();
-        StatusChanged?.Invoke("در حال اتصال...");
+        StatusChanged?.Invoke(Loc.T("P2p_Connecting"));
 
         var authData = new NetDataWriter();
         authData.Put(username);
@@ -103,7 +105,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
         if (peer == null)
         {
             Shutdown();
-            ConnectionFailed?.Invoke("اتصال شکست خورد", "آدرس یا پورت نامعتبر است.");
+            ConnectionFailed?.Invoke(Loc.T("P2p_ConnFailTitle"), Loc.T("P2p_BadAddress"));
             return false;
         }
 
@@ -122,7 +124,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
         }
         catch (OperationCanceledException)
         {
-            ConnectionFailed?.Invoke("Timeout", "هاست پاسخ نداد — آدرس را بررسی کنید.");
+            ConnectionFailed?.Invoke("Timeout", Loc.T("P2p_NoAnswer"));
             return false;
         }
         finally
@@ -223,7 +225,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
         SendKeyExchange(peer);
 
-        StatusChanged?.Invoke($"متصل — {_peers.Count} کاربر");
+        StatusChanged?.Invoke(Loc.T("P2p_ConnectedN", _peers.Count));
         PeerConnected?.Invoke(info);
     }
 
@@ -236,7 +238,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
         {
             string msg = di.AdditionalData.AvailableBytes > 0
                 ? di.AdditionalData.GetString()
-                : "اتصال توسط Host رد شد";
+                : Loc.T("P2p_Rejected");
             ConnectionRejected?.Invoke(msg);
             PeerDisconnected?.Invoke(peer.Id, msg);
             return;
@@ -244,15 +246,15 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
         string reason = di.Reason switch
         {
-            DisconnectReason.ConnectionFailed      => "اتصال برقرار نشد",
-            DisconnectReason.Timeout               => "اتصال Timeout شد",
-            DisconnectReason.RemoteConnectionClose => "طرف مقابل اتصال را قطع کرد",
-            DisconnectReason.HostUnreachable       => "هاست در دسترس نیست",
+            DisconnectReason.ConnectionFailed      => Loc.T("P2p_NotEstablished"),
+            DisconnectReason.Timeout               => Loc.T("P2p_Timeout"),
+            DisconnectReason.RemoteConnectionClose => Loc.T("P2p_RemoteClosed"),
+            DisconnectReason.HostUnreachable       => Loc.T("P2p_HostUnreachable"),
             _                                      => di.Reason.ToString()
         };
 
         if (_peers.Count == 0 && di.Reason == DisconnectReason.RemoteConnectionClose)
-            StatusChanged?.Invoke("قطع شده");
+            StatusChanged?.Invoke(Loc.T("P2p_Disconnected"));
 
         PeerDisconnected?.Invoke(peer.Id, reason);
     }
@@ -288,7 +290,7 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
     public void OnNetworkLatencyUpdate(NetPeer peer, int latency) { }
     public void OnNetworkError(IPEndPoint endPoint, SocketError socketError)
-        => ConnectionFailed?.Invoke("خطای شبکه", $"{socketError}");
+        => ConnectionFailed?.Invoke(Loc.T("P2p_NetError"), $"{socketError}");
     public void OnNetworkReceiveUnconnected(IPEndPoint _, NetPacketReader __, UnconnectedMessageType ___) { }
 
     // ── Key exchange ──────────────────────────────────────────────────────────

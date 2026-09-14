@@ -1,9 +1,10 @@
 <Window x:Class="VirtualLANPlatform.UI.Views.WindowPickerDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="اشتراک‌گذاری صفحه"
-        FlowDirection="RightToLeft"
-        FontFamily="Vazir, Segoe UI"
+        xmlns:loc="clr-namespace:VirtualLANPlatform.UI.Localization"
+        Title="{loc:Tr Share_Tab}"
+        FlowDirection="{Binding Flow, Source={x:Static loc:Loc.I}}"
+        FontFamily="{Binding Font, Source={x:Static loc:Loc.I}}"
         Width="740" SizeToContent="Height"
         MinHeight="320" MaxHeight="600"
         WindowStyle="None" AllowsTransparency="True"
@@ -23,10 +24,10 @@
 
             <!-- Header -->
             <StackPanel Grid.Row="0" Margin="20,16,20,10">
-                <TextBlock Text="🖥  انتخاب منبع اشتراک"
+                <TextBlock Text="{loc:Tr Wp_Title}"
                            FontSize="15" FontWeight="SemiBold"
                            Foreground="#DBDEE1"/>
-                <TextBlock Text="یک پنجره یا تمام صفحه را انتخاب کنید"
+                <TextBlock Text="{loc:Tr Wp_Subtitle}"
                            FontSize="12" Foreground="#72767D" Margin="0,3,0,0"/>
             </StackPanel>
 
@@ -42,7 +43,7 @@
             <Border Grid.Row="2" Margin="16,10,16,4"
                     Background="#1E1F22" CornerRadius="8" Padding="14,10">
                 <CheckBox x:Name="AudioCheck"
-                          Content="صدای سیستم هم به اشتراک گذاشته شود"
+                          Content="{loc:Tr Wp_SystemAudio}"
                           Foreground="#B9BBBE" FontSize="13" Cursor="Hand">
                     <CheckBox.Template>
                         <ControlTemplate TargetType="CheckBox">
@@ -75,7 +76,7 @@
             <StackPanel Grid.Row="3" Orientation="Horizontal"
                         HorizontalAlignment="Left"
                         Margin="16,8,16,16">
-                <Button x:Name="OkBtn" Content="شروع اشتراک" IsDefault="True"
+                <Button x:Name="OkBtn" Content="{loc:Tr Wp_StartBtn}" IsDefault="True"
                         Click="Ok_Click" Cursor="Hand"
                         Background="#4361EE" Foreground="White"
                         BorderThickness="0" Padding="18,9" FontSize="13" Margin="0,0,8,0">
@@ -100,7 +101,7 @@
                         </Style>
                     </Button.Style>
                 </Button>
-                <Button Content="لغو" IsCancel="True" Click="Cancel_Click" Cursor="Hand"
+                <Button Content="{loc:Tr Common_Cancel}" IsCancel="True" Click="Cancel_Click" Cursor="Hand"
                         Background="#313338" Foreground="#B9BBBE"
                         BorderThickness="0" Padding="18,9" FontSize="13">
                     <Button.Style>

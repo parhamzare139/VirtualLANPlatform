@@ -8,6 +8,8 @@ using LiteNetLib;
 using VirtualLANPlatform.Core.Networking;
 using VirtualLANPlatform.Core.Protocol;
 
+using VirtualLANPlatform.UI.Localization;
+
 namespace VirtualLANPlatform.Core.VirtualLan;
 
 /// <summary>
@@ -23,12 +25,35 @@ public sealed class VirtualLanManager : IDisposable
 {
     public const ushort VlanPort = 42778;
 
-    private const string Mask     = "255.255.0.0";
-    private const uint   NetBase  = 0x0A58_0000; // 10.88.0.0
-    private const uint   NetBcast = 0x0A58_FFFF; // 10.88.255.255
+    private const string Mask         = "255.255.0.0";
+    private const int    PrefixLength = 16;
+    private const string Subnet       = "10.88.0.0/16";
+    private const uint   NetBase      = 0x0A58_0000; // 10.88.0.0
+    private const uint   NetBcast     = 0x0A58_FFFF; // 10.88.255.255
 
-    private readonly P2PManager    _p2p = new();
-    private readonly WintunSession _tun = new();
+    /// <summary>
+    /// Largest packet we will hand to an unreliable channel. LiteNetLib cannot fragment
+    /// unreliable sends and <i>throws</i> when one exceeds the link MTU, so anything above
+    /// this goes reliable instead. The tunnel MTU is 1280, but the OS is free to hand us a
+    /// bigger frame regardless — a path-MTU probe, or an app that sets DF and ignores the
+    /// interface MTU — and one of those must not take the tunnel down.
+    /// </summary>
+    private const int MaxUnreliableSize = 1100;
+
+    /// <summary>
+    /// Picks the channel for one tunnelled packet. Unreliable by default: these are whole
+    /// IP packets, whatever runs inside does its own retransmission, and a reliable channel
+    /// underneath adds head-of-line blocking to exactly the traffic — game state, voice —
+    /// that would rather drop a datagram than wait for it.
+    /// </summary>
+    private static DeliveryMethod DeliveryFor(byte[] packet)
+        => packet.Length <= MaxUnreliableSize
+            ? DeliveryMethod.Unreliable
+            : DeliveryMethod.ReliableUnordered;
+
+    private readonly P2PManager    _p2p    = new();
+    private readonly WintunSession _tun    = new();
+    private readonly PortMapper    _mapper = new();
 
     /// <summary>This machine's own virtual IP — derived from its physical hardware
     /// identity so two different people hosting never end up with the same address
@@ -55,6 +80,13 @@ public sealed class VirtualLanManager : IDisposable
     public bool   IsHost     => _isHost;
     public string AssignedIp { get; private set; } = "";
 
+    /// <summary>
+    /// The address guests outside this LAN must dial, once the router has been asked to
+    /// forward our port. Null when UPnP was unavailable — hosting then only reaches
+    /// machines on the same physical network.
+    /// </summary>
+    public string? PublicEndpoint { get; private set; }
+
     public event Action<string>? StatusChanged;
     public event Action<string>? Connected;     // arg = assigned IP
     public event Action?         Disconnected;
@@ -79,16 +111,30 @@ public sealed class VirtualLanManager : IDisposable
         if (_active) return false;
         _isHost = true;
 
-        StatusChanged?.Invoke("در حال راه‌اندازی شبکه مجازی…");
+        StatusChanged?.Invoke(Loc.T("Vm_Starting"));
         var (ok, _, _) = await _p2p.StartAsHostAsync(username, VlanPort, localIp, ct);
-        if (!ok) { _isHost = false; Error?.Invoke($"پورت {VlanPort} در دسترس نیست."); return false; }
+        if (!ok) { _isHost = false; Error?.Invoke(Loc.T("Vm_PortBusy", VlanPort)); return false; }
 
-        // _tun.Start() shells out to netsh (seconds) — keep it off the caller's thread.
-        if (!await Task.Run(() => _tun.Start(Ip(_myVip), Mask), ct)) { await DisconnectAsync(); return false; }
+        // _tun.Start() configures the interface and shells out to netsh — keep it off
+        // the caller's thread.
+        if (!await Task.Run(() => _tun.Start(Ip(_myVip), PrefixLength), ct)) { await DisconnectAsync(); return false; }
+        await Task.Run(() => OpenSubnetFirewall(), ct);
 
         _active    = true;
         AssignedIp = Ip(_myVip);
-        StatusChanged?.Invoke("شبکه مجازی فعال — منتظر اتصال");
+
+        // Ask the router to forward our port. Guests elsewhere on the internet cannot
+        // reach us otherwise: their first packet hits the router with no NAT entry and
+        // is dropped before we ever hear about it. Best effort — plenty of networks have
+        // UPnP off, and behind carrier-grade NAT no port can be opened at all, which
+        // leaves hosting working for the local network only.
+        StatusChanged?.Invoke(Loc.T("Vm_OpeningPort"));
+        var map = await _mapper.MapAsync(VlanPort, "VirtualLAN Platform", ct);
+        PublicEndpoint = map.Ok ? map.ExternalIp : null;
+
+        StatusChanged?.Invoke(map.Ok
+            ? Loc.T("Vm_LiveWaiting")
+            : Loc.T("Vm_LiveLocal"));
         Connected?.Invoke(AssignedIp);
         return true;
     }
@@ -99,10 +145,10 @@ public sealed class VirtualLanManager : IDisposable
         _isHost = false;
         _assignTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        StatusChanged?.Invoke("در حال اتصال به شبکه مجازی…");
+        StatusChanged?.Invoke(Loc.T("Vm_Joining"));
         if (!await _p2p.ConnectAsGuestAsync(hostRealIp, VlanPort, username, ct))
         {
-            Error?.Invoke("اتصال به میزبان شبکه مجازی برقرار نشد.");
+            Error?.Invoke(Loc.T("Vm_JoinFailed"));
             _p2p.Shutdown();
             return false;
         }
@@ -116,16 +162,17 @@ public sealed class VirtualLanManager : IDisposable
         }
         catch
         {
-            Error?.Invoke("میزبان IP اختصاص نداد (Timeout).");
+            Error?.Invoke(Loc.T("Vm_NoIpGranted"));
             _p2p.Shutdown();
             return false;
         }
 
-        if (!await Task.Run(() => _tun.Start(ip, Mask), ct)) { await DisconnectAsync(); return false; }
+        if (!await Task.Run(() => _tun.Start(ip, PrefixLength), ct)) { await DisconnectAsync(); return false; }
+        await Task.Run(() => OpenSubnetFirewall(), ct);
 
         _active    = true;
         AssignedIp = ip;
-        StatusChanged?.Invoke($"متصل — IP شما {ip}");
+        StatusChanged?.Invoke(Loc.T("Vlan_ConnectedStatus", ip));
         Connected?.Invoke(ip);
         return true;
     }
@@ -140,6 +187,9 @@ public sealed class VirtualLanManager : IDisposable
 
         _tun.Dispose();
         _p2p.Shutdown();
+        // Leave the router as we found it rather than accumulating a stale forward.
+        try { _mapper.UnmapAsync().GetAwaiter().GetResult(); } catch { }
+        PublicEndpoint = null;
         _peerToVip.Clear();
         _vipToPeer.Clear();
         lock (_allocLock) _nextHostByte = 2;
@@ -147,7 +197,7 @@ public sealed class VirtualLanManager : IDisposable
 
         if (was)
         {
-            StatusChanged?.Invoke("شبکه مجازی قطع شد");
+            StatusChanged?.Invoke(Loc.T("Vm_Stopped"));
             Disconnected?.Invoke();
         }
         return Task.CompletedTask;
@@ -167,7 +217,7 @@ public sealed class VirtualLanManager : IDisposable
         _p2p.SendToPeer(peer.Id, MessageType.VirtualLanControl,
             JsonSerializer.SerializeToUtf8Bytes(dto), DeliveryMethod.ReliableOrdered);
 
-        StatusChanged?.Invoke($"عضو جدید — {Ip(vip)}");
+        StatusChanged?.Invoke(Loc.T("Vm_NewMember", Ip(vip)));
     }
 
     private void OnPeerDisconnected(int peerId, string reason)
@@ -199,15 +249,15 @@ public sealed class VirtualLanManager : IDisposable
 
         if (_isHost)
         {
-            if (IsFlood(dst)) { _p2p.SendToAll(MessageType.VirtualLanPacket, pkt, DeliveryMethod.ReliableUnordered); return; }
+            if (IsFlood(dst)) { _p2p.SendToAll(MessageType.VirtualLanPacket, pkt, DeliveryFor(pkt)); return; }
             if (_vipToPeer.TryGetValue(dst, out int peerId))
-                _p2p.SendToPeer(peerId, MessageType.VirtualLanPacket, pkt, DeliveryMethod.ReliableUnordered);
+                _p2p.SendToPeer(peerId, MessageType.VirtualLanPacket, pkt, DeliveryFor(pkt));
             // else: not a participant — drop (we don't tunnel off-subnet traffic)
         }
         else
         {
             // Guest: host is our only peer and does the routing.
-            _p2p.SendToAll(MessageType.VirtualLanPacket, pkt, DeliveryMethod.ReliableUnordered);
+            _p2p.SendToAll(MessageType.VirtualLanPacket, pkt, DeliveryFor(pkt));
         }
     }
 
@@ -228,7 +278,7 @@ public sealed class VirtualLanManager : IDisposable
                     _tun.WritePacket(pkt, pkt.Length);
                     foreach (var other in _vipToPeer.Values)
                         if (other != peerId)
-                            _p2p.SendToPeer(other, MessageType.VirtualLanPacket, pkt, DeliveryMethod.ReliableUnordered);
+                            _p2p.SendToPeer(other, MessageType.VirtualLanPacket, pkt, DeliveryFor(pkt));
                 }
                 else if (dst == _myVip)
                 {
@@ -236,7 +286,7 @@ public sealed class VirtualLanManager : IDisposable
                 }
                 else if (_vipToPeer.TryGetValue(dst, out int target) && target != peerId)
                 {
-                    _p2p.SendToPeer(target, MessageType.VirtualLanPacket, pkt, DeliveryMethod.ReliableUnordered);
+                    _p2p.SendToPeer(target, MessageType.VirtualLanPacket, pkt, DeliveryFor(pkt));
                 }
                 break;
             }
@@ -256,6 +306,43 @@ public sealed class VirtualLanManager : IDisposable
                 break;
             }
         }
+    }
+
+    // ── Firewall ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Allows all traffic to and from the virtual subnet through Windows Firewall.
+    ///
+    /// A freshly created adapter lands in the Public network profile, where the firewall
+    /// drops unsolicited inbound traffic. That is invisible from inside the app — the
+    /// tunnel is up, peers are connected, and every ping and game-discovery broadcast is
+    /// dropped by the receiver before anything sees it, which reads as "the virtual LAN
+    /// does not work". Scoping the rules to 10.88.0.0/16 keeps this narrow: nothing is
+    /// opened on the real network.
+    /// </summary>
+    private static void OpenSubnetFirewall()
+    {
+        const string ruleName = "VirtualLANPlatform VLAN Subnet";
+        // Delete first so repeated runs replace rather than stack duplicates.
+        Netsh($"advfirewall firewall delete rule name=\"{ruleName}\"");
+        Netsh($"advfirewall firewall add rule name=\"{ruleName}\" dir=in  action=allow protocol=any remoteip={Subnet}");
+        Netsh($"advfirewall firewall add rule name=\"{ruleName}\" dir=out action=allow protocol=any remoteip={Subnet}");
+    }
+
+    private static int Netsh(string args)
+    {
+        try
+        {
+            using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("netsh", args)
+            {
+                UseShellExecute        = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                CreateNoWindow         = true
+            })!;
+            return p.WaitForExit(5000) ? p.ExitCode : -1;
+        }
+        catch { return -1; }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -380,13 +467,21 @@ public sealed class VirtualLanManager : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+
+        // Disconnect BEFORE flagging disposed, and wait for it. The old order set the
+        // flag first and fired DisconnectAsync without awaiting — and DisconnectAsync
+        // returns immediately when that flag is set, so closing the app tore nothing
+        // down: peers were never told, the router mapping was left in place, and the
+        // status never reached the UI.
+        try { DisconnectAsync().GetAwaiter().GetResult(); } catch { }
+
         _disposed = true;
-        _ = DisconnectAsync();
         _p2p.PeerConnected    -= OnPeerConnected;
         _p2p.PeerDisconnected -= OnPeerDisconnected;
         _p2p.MessageReceived  -= OnP2PMessage;
         _tun.Dispose();
         _p2p.Dispose();
+        _mapper.Dispose();
     }
 
     private sealed class VlanControlDto

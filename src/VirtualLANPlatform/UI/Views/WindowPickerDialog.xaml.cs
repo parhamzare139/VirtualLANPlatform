@@ -51,7 +51,7 @@ public partial class WindowPickerDialog : Window
     private async Task LoadWindowsAsync()
     {
         // Full-screen card first — always available
-        var fullCard = BuildCard(IntPtr.Zero, "تمام صفحه", isFullScreen: true, thumb: null);
+        var fullCard = BuildCard(IntPtr.Zero, Localization.Loc.T("Wp_FullScreen"), isFullScreen: true, thumb: null);
         WindowsPanel.Children.Add(fullCard);
         SelectCard(fullCard, IntPtr.Zero);
 

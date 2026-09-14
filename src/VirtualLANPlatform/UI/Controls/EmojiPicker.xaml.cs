@@ -42,7 +42,7 @@ public partial class EmojiPicker : UserControl
         }
         catch
         {
-            GroupLabel.Text = "ایموجی در دسترس نیست";
+            GroupLabel.Text = Localization.Loc.T("Emoji_Unavailable");
         }
     }
 

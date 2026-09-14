@@ -13,8 +13,8 @@ public partial class ScreenShareViewer : Window
 
     public void SetSharer(string username)
     {
-        SharingLabel.Text = $"صفحه‌نمایش  {username}";
-        Title = $"اشتراک‌گذاری — {username}";
+        SharingLabel.Text = Localization.Loc.T("Sv_ViewerTitle", username);
+        Title = Localization.Loc.T("Sv_SharingTitle", username);
     }
 
     /// <summary>Called from any thread; dispatches to UI thread.</summary>

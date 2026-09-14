@@ -15,7 +15,7 @@ public sealed class InitialConverter : IValueConverter
     {
         string s = value as string ?? "";
         s = s.TrimStart();
-        return s.Length == 0 ? "؟" : s[..1].ToUpperInvariant();
+        return s.Length == 0 ? Localization.Loc.T("Member_Unknown") : s[..1].ToUpperInvariant();
     }
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -23,32 +23,28 @@ public sealed class InitialConverter : IValueConverter
 }
 
 /// <summary>
-/// Converts a plain-text chat message into a WPF FlowDocument.
-/// URLs are extracted via regex and rendered as clickable Hyperlinks.
-/// Known platforms get a small emoji prefix.
+/// Turns a plain-text chat message into WPF inlines: clickable Hyperlinks for URLs,
+/// bundled 3D images for emoji, plain Runs for everything else.
+/// Shared by the FlowDocument path and the TextBlock path so both render identically.
 /// </summary>
-public sealed class LinkFlowDocumentConverter : IValueConverter
+public static class MessageInlines
 {
     private static readonly Regex UrlRx = new(
         @"https?://[^\s<>""{}|\\^`\[\]]+",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    public static void Build(InlineCollection target, string text)
     {
-        string text = value as string ?? "";
-        var doc  = new FlowDocument();
-        var para = new Paragraph { Margin = new Thickness(0), LineHeight = 20 };
-
         int pos = 0;
         foreach (Match m in UrlRx.Matches(text))
         {
             if (m.Index > pos)
-                AddTextWithEmoji(para, text[pos..m.Index]);
+                AddTextWithEmoji(target, text[pos..m.Index]);
 
             string url    = m.Value;
             string? emoji = PlatformEmoji(url);
             if (emoji != null)
-                para.Inlines.Add(new Run(emoji + " ") { FontSize = 11 });
+                target.Add(new Run(emoji + " ") { FontSize = 11 });
 
             try
             {
@@ -62,25 +58,19 @@ public sealed class LinkFlowDocumentConverter : IValueConverter
                 };
                 link.MouseEnter += (_, _) => link.TextDecorations = TextDecorations.Underline;
                 link.MouseLeave += (_, _) => link.TextDecorations = null;
-                para.Inlines.Add(link);
+                target.Add(link);
             }
-            catch { para.Inlines.Add(new Run(url)); }
+            catch { target.Add(new Run(url)); }
 
             pos = m.Index + m.Length;
         }
 
         if (pos < text.Length)
-            AddTextWithEmoji(para, text[pos..]);
-
-        doc.Blocks.Add(para);
-        return doc;
+            AddTextWithEmoji(target, text[pos..]);
     }
 
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => throw new NotSupportedException();
-
     /// <summary>Splits <paramref name="text"/> into runs, swapping in a bundled 3D image wherever a known emoji appears.</summary>
-    private static void AddTextWithEmoji(Paragraph para, string text)
+    private static void AddTextWithEmoji(InlineCollection target, string text)
     {
         int i = 0, runStart = 0;
         while (i < text.Length)
@@ -89,10 +79,10 @@ public sealed class LinkFlowDocumentConverter : IValueConverter
                 Emoji3DImages.TryGet(emoji, out var image) && image != null)
             {
                 if (i > runStart)
-                    para.Inlines.Add(new Run(text[runStart..i]));
+                    target.Add(new Run(text[runStart..i]));
 
                 var img = EmojiInline.CreateImage(image, emoji, 18);
-                para.Inlines.Add(new InlineUIContainer(img) { BaselineAlignment = BaselineAlignment.Center });
+                target.Add(new InlineUIContainer(img) { BaselineAlignment = BaselineAlignment.Center });
 
                 i        += emoji.Length;
                 runStart =  i;
@@ -101,7 +91,7 @@ public sealed class LinkFlowDocumentConverter : IValueConverter
         }
 
         if (runStart < text.Length)
-            para.Inlines.Add(new Run(text[runStart..]));
+            target.Add(new Run(text[runStart..]));
     }
 
     private static string? PlatformEmoji(string url)
@@ -118,31 +108,35 @@ public sealed class LinkFlowDocumentConverter : IValueConverter
 }
 
 /// <summary>
-/// Attached property workaround for WPF's restriction on binding RichTextBox.Document directly.
-/// Bind the text string to DocumentSource; the callback creates the FlowDocument in code.
+/// Populates a TextBlock's Inlines from a plain-text message.
+/// <para>
+/// Chat bubbles use a TextBlock rather than a RichTextBox because a RichTextBox always
+/// reports the full available width as its desired width — every bubble would stretch
+/// edge to edge. A TextBlock measures to its actual text, which is what lets a bubble
+/// hug short messages the way a messenger does. Hyperlink and InlineUIContainer (the 3D
+/// emoji) work in both, so nothing is lost but caret selection; the bubble's copy
+/// action covers that.
+/// </para>
 /// </summary>
-public static class RichTextBoxHelper
+public static class TextBlockHelper
 {
-    private static readonly LinkFlowDocumentConverter Conv = new();
-
-    public static readonly DependencyProperty DocumentSourceProperty =
+    public static readonly DependencyProperty InlineSourceProperty =
         DependencyProperty.RegisterAttached(
-            "DocumentSource",
+            "InlineSource",
             typeof(string),
-            typeof(RichTextBoxHelper),
-            new PropertyMetadata(null, OnDocumentSourceChanged));
+            typeof(TextBlockHelper),
+            new PropertyMetadata(null, OnInlineSourceChanged));
 
-    public static string? GetDocumentSource(DependencyObject obj)
-        => (string?)obj.GetValue(DocumentSourceProperty);
+    public static string? GetInlineSource(DependencyObject obj)
+        => (string?)obj.GetValue(InlineSourceProperty);
 
-    public static void SetDocumentSource(DependencyObject obj, string? value)
-        => obj.SetValue(DocumentSourceProperty, value);
+    public static void SetInlineSource(DependencyObject obj, string? value)
+        => obj.SetValue(InlineSourceProperty, value);
 
-    private static void OnDocumentSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    private static void OnInlineSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (d is not System.Windows.Controls.RichTextBox rtb) return;
-        string text = e.NewValue as string ?? "";
-        rtb.Document = (FlowDocument)Conv.Convert(
-            text, typeof(FlowDocument), null, CultureInfo.CurrentCulture);
+        if (d is not TextBlock tb) return;
+        tb.Inlines.Clear();
+        MessageInlines.Build(tb.Inlines, e.NewValue as string ?? "");
     }
 }

@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
 
+using VirtualLANPlatform.UI.Localization;
+
 namespace VirtualLANPlatform.Core.Chat;
 
 /// <summary>
@@ -52,7 +54,7 @@ public sealed class ChatMessage : INotifyPropertyChanged
     public void MarkDeleted()
     {
         if (IsDeleted) return;
-        Text      = "این پیام حذف شد";
+        Text      = Loc.T("Chat_Deleted");
         IsDeleted = true;
     }
 

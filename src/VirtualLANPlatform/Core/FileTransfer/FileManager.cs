@@ -6,6 +6,8 @@ using LiteNetLib;
 using VirtualLANPlatform.Core.Networking;
 using VirtualLANPlatform.Core.Protocol;
 
+using VirtualLANPlatform.UI.Localization;
+
 namespace VirtualLANPlatform.Core.FileTransfer;
 
 public record FileTransferInfo(string Id, string FileName, long Size, int PeerId);
@@ -57,7 +59,7 @@ public sealed class FileManager : IDisposable
             {
                 try { removed.TempFile?.Dispose(); } catch { }
                 if (removed.TempPath != null) try { File.Delete(removed.TempPath); } catch { }
-                TransferFailed?.Invoke(id, "طرف مقابل قطع شد");
+                TransferFailed?.Invoke(id, Loc.T("Fm_PeerGone"));
             }
         }
     }
@@ -69,7 +71,7 @@ public sealed class FileManager : IDisposable
     {
         if (!_p2p.IsRunning || _p2p.PeerCount == 0)
         {
-            StatusChanged?.Invoke("هیچ Peer متصلی وجود ندارد");
+            StatusChanged?.Invoke(Loc.T("Fm_NoPeers"));
             return;
         }
 
@@ -82,8 +84,8 @@ public sealed class FileManager : IDisposable
 
         if (size == 0)
         {
-            StatusChanged?.Invoke($"فایل «{name}» خالی است و قابل ارسال نیست");
-            TransferFailed?.Invoke(id, "فایل خالی است (0 بایت)");
+            StatusChanged?.Invoke(Loc.T("Fm_EmptyNamed", name));
+            TransferFailed?.Invoke(id, Loc.T("Fm_Empty"));
             return;
         }
 
@@ -95,7 +97,7 @@ public sealed class FileManager : IDisposable
         // "در انتظار پذیرش..." forever with nothing telling the user it failed.
         try
         {
-            StatusChanged?.Invoke($"در حال محاسبه SHA256: {name}");
+            StatusChanged?.Invoke(Loc.T("Fm_Hashing", name));
             string sha256 = await Task.Run(() =>
             {
                 using var fs = File.OpenRead(filePath);
@@ -114,7 +116,7 @@ public sealed class FileManager : IDisposable
             _pendingAccept[id] = tcs;
 
             _p2p.SendToAll(MessageType.FileInfo, Encoding.UTF8.GetBytes(infoJson));
-            StatusChanged?.Invoke($"در انتظار پذیرش: {name}");
+            StatusChanged?.Invoke(Loc.T("Fm_AwaitAccept", name));
 
             bool accepted;
             try   { accepted = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(60)); }
@@ -123,13 +125,13 @@ public sealed class FileManager : IDisposable
 
             if (!accepted)
             {
-                TransferFailed?.Invoke(id, "طرف مقابل فایل را نپذیرفت");
-                StatusChanged?.Invoke("ارسال فایل لغو شد");
+                TransferFailed?.Invoke(id, Loc.T("Fm_Refused"));
+                StatusChanged?.Invoke(Loc.T("Fm_SendCancelled"));
                 return;
             }
 
             // Stream chunks
-            StatusChanged?.Invoke($"در حال ارسال: {name}  (0 / {totalChunks})");
+            StatusChanged?.Invoke(Loc.T("Fm_SendStart", name, totalChunks));
             int sentChunks = 0;
             await Task.Run(async () =>
             {
@@ -146,7 +148,7 @@ public sealed class FileManager : IDisposable
                     TransferProgress?.Invoke(id, sentChunks, totalChunks);
 
                     if (i % 50 == 0)
-                        StatusChanged?.Invoke($"ارسال: {name}  ({i + 1} / {totalChunks})");
+                        StatusChanged?.Invoke(Loc.T("Fm_SendChunk", name, i + 1, totalChunks));
 
                     if (i % 100 == 0) await Task.Yield();
                 }
@@ -156,19 +158,19 @@ public sealed class FileManager : IDisposable
             // for the original chunk count and will hang forever if we claim success.
             if (sentChunks < totalChunks)
             {
-                TransferFailed?.Invoke(id, "فایل در حین ارسال ناقص شد");
-                StatusChanged?.Invoke($"ارسال ناموفق: {name}");
+                TransferFailed?.Invoke(id, Loc.T("Fm_Truncated"));
+                StatusChanged?.Invoke(Loc.T("Fm_SendFailed", name));
                 return;
             }
 
-            StatusChanged?.Invoke($"ارسال کامل شد: {name}");
+            StatusChanged?.Invoke(Loc.T("Fm_SendDone", name));
             TransferComplete?.Invoke(id, filePath);
         }
         catch (Exception ex)
         {
             _pendingAccept.TryRemove(id, out _);
             TransferFailed?.Invoke(id, ex.Message);
-            StatusChanged?.Invoke($"ارسال ناموفق: {name}");
+            StatusChanged?.Invoke(Loc.T("Fm_SendFailed", name));
         }
     }
 
@@ -178,7 +180,7 @@ public sealed class FileManager : IDisposable
     {
         if (!_incoming.TryGetValue(id, out var state))
         {
-            StatusChanged?.Invoke($"خطا: اطلاعات فایل یافت نشد (id={id})");
+            StatusChanged?.Invoke(Loc.T("Fm_NoMeta", id));
             return;
         }
 
@@ -296,7 +298,7 @@ public sealed class FileManager : IDisposable
 
             if (received % 50 == 0)
                 StatusChanged?.Invoke(
-                    $"دریافت: {state.Name}  ({received} / {state.TotalChunks})");
+                    Loc.T("Fm_RecvChunk", state.Name, received, state.TotalChunks));
 
             if (received >= state.TotalChunks)
                 // SHA256-hashing and moving the whole file is too slow to run inline —
@@ -317,7 +319,7 @@ public sealed class FileManager : IDisposable
             string tempPath = state.TempPath!;
 
             // Verify integrity
-            StatusChanged?.Invoke($"در حال بررسی SHA256: {state.Name}");
+            StatusChanged?.Invoke(Loc.T("Fm_Verifying", state.Name));
             using (var fs = File.OpenRead(tempPath))
             {
                 string computed = Convert.ToHexString(SHA256.HashData(fs)).ToLower();
@@ -325,7 +327,7 @@ public sealed class FileManager : IDisposable
                 {
                     try { File.Delete(tempPath); } catch { }
                     _incoming.TryRemove(id, out _);
-                    TransferFailed?.Invoke(id, $"خطای Checksum — فایل آسیب دیده: {state.Name}");
+                    TransferFailed?.Invoke(id, Loc.T("Fm_Checksum", state.Name));
                     return;
                 }
             }

@@ -70,6 +70,11 @@
     <CornerRadius x:Key="RadiusCard">14</CornerRadius>
     <CornerRadius x:Key="RadiusCtl">10</CornerRadius>
 
+    <!-- Bundled Persian UI face (Assets\Fonts\Vazirmatn-*.ttf). Ships with the app so
+         it renders identically everywhere; the trailing families are a safety net only. -->
+    <FontFamily x:Key="UiFont">pack://application:,,,/Assets/Fonts/#Vazirmatn, Segoe UI, Tahoma</FontFamily>
+    <FontFamily x:Key="MonoFont">Consolas, Courier New</FontFamily>
+
     <DropShadowEffect x:Key="SoftShadow" BlurRadius="24" ShadowDepth="4"
                       Direction="270" Opacity="0.45" Color="#000000"/>
     <DropShadowEffect x:Key="AccentGlow" BlurRadius="18" ShadowDepth="0"
@@ -77,7 +82,6 @@
 
     <BooleanToVisibilityConverter x:Key="BoolVis"/>
     <ui:InitialConverter          x:Key="Initial"/>
-    <ui:LinkFlowDocumentConverter x:Key="LinkTextConv"/>
 
     <!-- ═══════════════════════════════════════════════════════════════
          SCROLLBAR — thin, self-effacing, matches the surface
@@ -253,8 +257,9 @@
         <Setter Property="Background"      Value="{StaticResource AccentGrad}"/>
         <Setter Property="Foreground"      Value="White"/>
         <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="Padding"         Value="18,10"/>
-        <Setter Property="FontSize"        Value="13"/>
+        <Setter Property="Padding"         Value="24,13"/>
+        <Setter Property="MinHeight"       Value="46"/>
+        <Setter Property="FontSize"        Value="14"/>
         <Setter Property="FontWeight"      Value="SemiBold"/>
         <Setter Property="Cursor"          Value="Hand"/>
         <Setter Property="Template"        Value="{StaticResource Tpl.Solid}"/>
@@ -273,8 +278,10 @@
         <Setter Property="Foreground"      Value="{StaticResource TxtMid}"/>
         <Setter Property="BorderBrush"     Value="{StaticResource Stroke}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding"         Value="14,8"/>
-        <Setter Property="FontSize"        Value="12.5"/>
+        <Setter Property="Padding"         Value="18,11"/>
+        <Setter Property="MinHeight"       Value="42"/>
+        <Setter Property="FontSize"        Value="13.5"/>
+        <Setter Property="FontWeight"      Value="Medium"/>
         <Setter Property="Cursor"          Value="Hand"/>
         <Setter Property="Template"        Value="{StaticResource Tpl.Solid}"/>
         <Style.Triggers>
@@ -291,8 +298,8 @@
         <Setter Property="Background"      Value="#1B2130"/>
         <Setter Property="Foreground"      Value="{StaticResource TxtHi}"/>
         <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="Width"           Value="40"/>
-        <Setter Property="Height"          Value="40"/>
+        <Setter Property="Width"           Value="42"/>
+        <Setter Property="Height"          Value="42"/>
         <Setter Property="Padding"         Value="0"/>
         <Setter Property="Cursor"          Value="Hand"/>
         <Setter Property="Template"        Value="{StaticResource Tpl.IconRound}"/>
@@ -303,8 +310,8 @@
         <Setter Property="Background"      Value="Transparent"/>
         <Setter Property="Foreground"      Value="{StaticResource TxtLo}"/>
         <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="Width"           Value="26"/>
-        <Setter Property="Height"          Value="26"/>
+        <Setter Property="Width"           Value="30"/>
+        <Setter Property="Height"          Value="30"/>
         <Setter Property="Padding"         Value="0"/>
         <Setter Property="Cursor"          Value="Hand"/>
         <Setter Property="Template"        Value="{StaticResource Tpl.Flat}"/>
@@ -319,8 +326,8 @@
         <Setter Property="Background"               Value="Transparent"/>
         <Setter Property="Foreground"               Value="{StaticResource TxtMid}"/>
         <Setter Property="BorderThickness"          Value="0"/>
-        <Setter Property="FontSize"                 Value="13"/>
-        <Setter Property="Padding"                  Value="12,10"/>
+        <Setter Property="FontSize"                 Value="13.5"/>
+        <Setter Property="Padding"                  Value="16,12"/>
         <Setter Property="HorizontalAlignment"      Value="Stretch"/>
         <Setter Property="HorizontalContentAlignment" Value="Right"/>
         <Setter Property="Cursor"                   Value="Hand"/>
@@ -338,8 +345,9 @@
         <Setter Property="SelectionBrush"            Value="{StaticResource Accent}"/>
         <Setter Property="BorderBrush"               Value="{StaticResource Stroke}"/>
         <Setter Property="BorderThickness"           Value="1"/>
-        <Setter Property="Padding"                   Value="12,0"/>
-        <Setter Property="FontSize"                  Value="13"/>
+        <Setter Property="Padding"                   Value="14,0"/>
+        <Setter Property="FontSize"                  Value="13.5"/>
+        <Setter Property="MinHeight"                 Value="42"/>
         <Setter Property="VerticalContentAlignment"  Value="Center"/>
         <Setter Property="Template">
             <Setter.Value>

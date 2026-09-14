@@ -13,7 +13,7 @@ public sealed class ScreenShareWindow : Window
 
     public ScreenShareWindow(string sharerName)
     {
-        Title      = $"اشتراک صفحه — {sharerName}";
+        Title      = Localization.Loc.T("Sv_WindowTitle", sharerName);
         Background = new SolidColorBrush(Colors.Black);
         Width  = 960;
         Height = 580;
@@ -26,7 +26,7 @@ public sealed class ScreenShareWindow : Window
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         Grid.SetRow(_frame, 0);
-        _label.Text = $"📡  در حال دریافت صفحه‌نمایش  {sharerName}";
+        _label.Text = Localization.Loc.T("Sv_Receiving", sharerName);
         _bar.Items.Add(_label);
         _bar.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x20, 0x25));
         Grid.SetRow(_bar, 1);
@@ -43,7 +43,7 @@ public sealed class ScreenShareWindow : Window
 
     public void SetStopped()
     {
-        _label.Text = "اشتراک صفحه متوقف شد";
+        _label.Text = Localization.Loc.T("Share_Stopped");
         _label.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFA, 0xA6, 0x1A));
     }
 }

@@ -1,6 +1,7 @@
 <Window x:Class="VirtualLANPlatform.UI.Views.ScreenShareViewer"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:VirtualLANPlatform.UI.Localization"
         Title="اشتراک‌گذاری صفحه"
         Height="540" Width="960"
         MinHeight="300" MinWidth="480"
@@ -29,12 +30,12 @@
         <Border Grid.Row="0" Background="#111214">
             <Grid Margin="12,0">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
-                            FlowDirection="RightToLeft">
+                            FlowDirection="{Binding Flow, Source={x:Static loc:Loc.I}}">
                     <Ellipse Width="8" Height="8" Fill="#ED4245" Margin="0,0,7,0"/>
                     <TextBlock x:Name="SharingLabel"
-                               Text="در حال دریافت صفحه..."
+                               Text="{loc:Tr Sv_Waiting}"
                                Foreground="#DBDEE1" FontSize="12"
-                               FontFamily="Vazir"
+                               FontFamily="{Binding Font, Source={x:Static loc:Loc.I}}"
                                VerticalAlignment="Center"/>
                 </StackPanel>
                 <Button Content="✕" HorizontalAlignment="Left"

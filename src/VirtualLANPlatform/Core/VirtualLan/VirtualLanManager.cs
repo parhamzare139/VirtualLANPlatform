@@ -7,10 +7,16 @@ using System.Text.Json.Serialization;
 using LiteNetLib;
 using VirtualLANPlatform.Core.Networking;
 using VirtualLANPlatform.Core.Protocol;
+using VirtualLANPlatform.Core.Services;
 
 using VirtualLANPlatform.UI.Localization;
 
 namespace VirtualLANPlatform.Core.VirtualLan;
+
+/// <summary>One participant as shown in the members list. <see cref="RttMs"/> is the
+/// round trip from <i>this</i> machine: direct to the host, and host-relayed to other
+/// guests (their leg plus ours), which is the path their packets actually take.</summary>
+public sealed record VlanMember(string Name, string Ip, bool IsHost, bool IsSelf, Presence Status, int RttMs);
 
 /// <summary>
 /// A standalone virtual LAN — independent of chat rooms. One machine hosts, others
@@ -76,6 +82,63 @@ public sealed class VirtualLanManager : IDisposable
     // Guest-only: completes when the host grants us an IP.
     private TaskCompletionSource<string>? _assignTcs;
 
+    // ── Roster ───────────────────────────────────────────────────────────────
+    // Host: who is connected, by peer id. Guest: the last roster the host sent.
+    private readonly ConcurrentDictionary<int, (string Name, uint Vip, Presence Status)> _guests = new();
+    private volatile List<VlanMember> _roster = new();
+    private string   _myName     = "";
+    private Presence _myPresence = Presence.Online;
+    private System.Threading.Timer? _rosterTimer;
+    private static readonly TimeSpan RosterInterval = TimeSpan.FromSeconds(2);
+
+    /// <summary>Everyone on the network, this machine included, in a stable order.</summary>
+    public IReadOnlyList<VlanMember> Members
+    {
+        get
+        {
+            if (!_active) return Array.Empty<VlanMember>();
+            if (_isHost)
+            {
+                var list = new List<VlanMember>
+                {
+                    new(_myName, AssignedIp, IsHost: true, IsSelf: true, _myPresence, 0)
+                };
+                foreach (var (peerId, g) in _guests)
+                    list.Add(new VlanMember(g.Name, Ip(g.Vip), false, false, g.Status, Math.Max(0, _p2p.GetRtt(peerId))));
+                return list;
+            }
+            // Guest: the host's view, re-based on our own round trip.
+            int mine = Math.Max(0, _p2p.GetRtt(-1));
+            return _roster.Select(m =>
+                m.IsSelf ? m with { RttMs = 0, Status = _myPresence }
+                : m.IsHost ? m with { RttMs = mine }
+                : m with { RttMs = mine + m.RttMs }).ToList();
+        }
+    }
+
+    /// <summary>The roster or someone's status/ping changed.</summary>
+    public event Action? MembersChanged;
+    /// <summary>(name, virtual ip) — someone other than us came or went.</summary>
+    public event Action<string, string>? MemberJoined;
+    public event Action<string, string>? MemberLeft;
+
+    /// <summary>Round trip to the host in ms (guest), or 0 (host).</summary>
+    public int HostRttMs => _isHost ? 0 : Math.Max(0, _p2p.GetRtt(-1));
+
+    /// <summary>Transport totals for the traffic meter.</summary>
+    public (long BytesSent, long BytesReceived, long PacketsSent, long PacketLoss) GetStatistics()
+        => _p2p.GetStatistics();
+
+    /// <summary>What this machine is up to, for everyone else's list.</summary>
+    public void SetMyPresence(Presence presence)
+    {
+        _myPresence = presence;
+        if (!_active) return;
+        if (_isHost) BroadcastRoster();
+        else SendControl(new VlanControlDto { Op = "presence", Status = PresenceMonitor.Code(presence) });
+        MembersChanged?.Invoke();
+    }
+
     public bool   IsActive   => _active;
     public bool   IsHost     => _isHost;
     public string AssignedIp { get; private set; } = "";
@@ -87,10 +150,31 @@ public sealed class VirtualLanManager : IDisposable
     /// </summary>
     public string? PublicEndpoint { get; private set; }
 
+    /// <summary>This machine's own LAN address, for guests on the same network.</summary>
+    public string? LanEndpoint { get; private set; }
+
+    /// <summary>
+    /// What the host hands out: the public address, or the LAN one when the router could
+    /// not be opened and only the local network can reach us. Never both — the guest
+    /// side still accepts a "a|b" list, but nobody in practice shares a network with
+    /// the person they are inviting, and a two-part code just reads as two IPs.
+    /// </summary>
+    public string? InviteCode => PublicEndpoint is { Length: > 0 } pub ? pub : LanEndpoint;
+
     public event Action<string>? StatusChanged;
     public event Action<string>? Connected;     // arg = assigned IP
     public event Action?         Disconnected;
     public event Action<string>? Error;
+
+    /// <summary>The host's public address moved; arg = the new invite code.</summary>
+    public event Action<string>? InviteChanged;
+
+    // Re-checks the public address while hosting. Residential PPPoE lines redial often
+    // and come back with a different address, so an invite copied ten minutes ago can
+    // point at a dead IP by the time a friend types it in — which reads as a timeout
+    // with nothing to explain it.
+    private System.Threading.Timer? _inviteWatch;
+    private static readonly TimeSpan InviteWatchInterval = TimeSpan.FromSeconds(45);
 
     public VirtualLanManager()
     {
@@ -106,13 +190,19 @@ public sealed class VirtualLanManager : IDisposable
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
-    public async Task<bool> HostAsync(string username, string? localIp = null, CancellationToken ct = default)
+    public async Task<bool> HostAsync(string username, CancellationToken ct = default)
     {
         if (_active) return false;
         _isHost = true;
+        _myName = username;
 
         StatusChanged?.Invoke(Loc.T("Vm_Starting"));
-        var (ok, _, _) = await _p2p.StartAsHostAsync(username, VlanPort, localIp, ct);
+        // Bind to every interface. This used to take the lobby's adapter selection, whose
+        // default is whatever Windows enumerates first — on a machine with VMware or a
+        // stale virtual adapter that is not the LAN, so the socket sat on 192.168.230.1
+        // while the router forwarded guests to 192.168.1.x. Every connection timed out
+        // and nothing said why. There is no reason to pin a listener to one adapter.
+        var (ok, _, _) = await _p2p.StartAsHostAsync(username, VlanPort, localIp: null, ct);
         if (!ok) { _isHost = false; Error?.Invoke(Loc.T("Vm_PortBusy", VlanPort)); return false; }
 
         // _tun.Start() configures the interface and shells out to netsh — keep it off
@@ -130,7 +220,18 @@ public sealed class VirtualLanManager : IDisposable
         // leaves hosting working for the local network only.
         StatusChanged?.Invoke(Loc.T("Vm_OpeningPort"));
         var map = await _mapper.MapAsync(VlanPort, "VirtualLAN Platform", ct);
-        PublicEndpoint = map.Ok ? map.ExternalIp : null;
+        // Prefer what the internet actually sees over what the router claims: they agree
+        // on a healthy line, and when they disagree the observed one is the dialable one.
+        PublicEndpoint = map.Ok ? (_mapper.ObservedIp ?? map.ExternalIp) : null;
+        LanEndpoint    = _mapper.LanIp ?? FirstLanAddress();
+
+        if (map.Ok)
+            _inviteWatch = new System.Threading.Timer(_ => _ = RefreshInviteAsync(), null, InviteWatchInterval, InviteWatchInterval);
+
+        // Pings drift; the list needs fresh numbers even when nobody comes or goes.
+        _rosterTimer = new System.Threading.Timer(_ => { if (_active && _isHost && !_guests.IsEmpty) BroadcastRoster(); MembersChanged?.Invoke(); },
+            null, RosterInterval, RosterInterval);
+        AppLog.Info("vlan", $"hosting as {username}: ip={AssignedIp} public={PublicEndpoint ?? "-"} lan={LanEndpoint ?? "-"}");
 
         StatusChanged?.Invoke(map.Ok
             ? Loc.T("Vm_LiveWaiting")
@@ -139,14 +240,27 @@ public sealed class VirtualLanManager : IDisposable
         return true;
     }
 
-    public async Task<bool> JoinAsync(string hostRealIp, string username, CancellationToken ct = default)
+    public async Task<bool> JoinAsync(string invite, string username, CancellationToken ct = default)
     {
         if (_active) return false;
         _isHost = false;
+        _myName = username;
         _assignTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         StatusChanged?.Invoke(Loc.T("Vm_Joining"));
-        if (!await _p2p.ConnectAsGuestAsync(hostRealIp, VlanPort, username, ct))
+
+        bool connected = false;
+        foreach (var (address, limit) in OrderCandidates(invite))
+        {
+            StatusChanged?.Invoke(Loc.T("Vm_Trying", address));
+            if (await _p2p.ConnectAsGuestAsync(address, VlanPort, username, ct, limit))
+            {
+                connected = true;
+                break;
+            }
+        }
+
+        if (!connected)
         {
             Error?.Invoke(Loc.T("Vm_JoinFailed"));
             _p2p.Shutdown();
@@ -172,6 +286,10 @@ public sealed class VirtualLanManager : IDisposable
 
         _active    = true;
         AssignedIp = ip;
+        // Ping refresh for the list; the host's roster carries everyone else's numbers.
+        _rosterTimer = new System.Threading.Timer(_ => { if (_active) MembersChanged?.Invoke(); }, null, RosterInterval, RosterInterval);
+        SendControl(new VlanControlDto { Op = "presence", Status = PresenceMonitor.Code(_myPresence) });
+        AppLog.Info("vlan", $"joined {invite} as {username}: ip={ip}");
         StatusChanged?.Invoke(Loc.T("Vlan_ConnectedStatus", ip));
         Connected?.Invoke(ip);
         return true;
@@ -189,16 +307,25 @@ public sealed class VirtualLanManager : IDisposable
         _p2p.Shutdown();
         // Leave the router as we found it rather than accumulating a stale forward.
         try { _mapper.UnmapAsync().GetAwaiter().GetResult(); } catch { }
+        _inviteWatch?.Dispose();
+        _inviteWatch   = null;
+        _rosterTimer?.Dispose();
+        _rosterTimer   = null;
         PublicEndpoint = null;
+        LanEndpoint    = null;
         _peerToVip.Clear();
         _vipToPeer.Clear();
+        _guests.Clear();
+        _roster = new List<VlanMember>();
         lock (_allocLock) _nextHostByte = 2;
         AssignedIp = "";
 
         if (was)
         {
+            AppLog.Info("vlan", "stopped");
             StatusChanged?.Invoke(Loc.T("Vm_Stopped"));
             Disconnected?.Invoke();
+            MembersChanged?.Invoke();
         }
         return Task.CompletedTask;
     }
@@ -217,7 +344,12 @@ public sealed class VirtualLanManager : IDisposable
         _p2p.SendToPeer(peer.Id, MessageType.VirtualLanControl,
             JsonSerializer.SerializeToUtf8Bytes(dto), DeliveryMethod.ReliableOrdered);
 
+        _guests[peer.Id] = (peer.Username, vip, Presence.Online);
+        BroadcastRoster();
+        AppLog.Info("vlan", $"guest joined: {peer.Username} ({peer.EndPoint}) -> {Ip(vip)}");
         StatusChanged?.Invoke(Loc.T("Vm_NewMember", Ip(vip)));
+        MemberJoined?.Invoke(peer.Username, Ip(vip));
+        MembersChanged?.Invoke();
     }
 
     private void OnPeerDisconnected(int peerId, string reason)
@@ -228,6 +360,13 @@ public sealed class VirtualLanManager : IDisposable
             {
                 _vipToPeer.TryRemove(vip, out _);
                 FreeVip(vip);
+            }
+            if (_guests.TryRemove(peerId, out var gone))
+            {
+                AppLog.Info("vlan", $"guest left: {gone.Name} ({reason})");
+                if (_active) BroadcastRoster();
+                MemberLeft?.Invoke(gone.Name, Ip(gone.Vip));
+                MembersChanged?.Invoke();
             }
             return;
         }
@@ -291,11 +430,21 @@ public sealed class VirtualLanManager : IDisposable
                 break;
             }
 
-            case MessageType.VirtualLanControl when !_isHost:
+            case MessageType.VirtualLanControl:
             {
                 var dto = TryParse(frame.Payload.ToArray());
-                if (dto is { Op: "assign", Ip.Length: > 0 })
+                if (dto == null) break;
+
+                if (!_isHost && dto is { Op: "assign", Ip.Length: > 0 })
                     _assignTcs?.TrySetResult(dto.Ip);
+                else if (!_isHost && dto.Op == "roster" && dto.Members != null)
+                    ApplyRoster(dto.Members);
+                else if (_isHost && dto.Op == "presence" && _guests.TryGetValue(peerId, out var g))
+                {
+                    _guests[peerId] = (g.Name, g.Vip, PresenceMonitor.Parse(dto.Status));
+                    BroadcastRoster();
+                    MembersChanged?.Invoke();
+                }
                 break;
             }
 
@@ -306,6 +455,155 @@ public sealed class VirtualLanManager : IDisposable
                 break;
             }
         }
+    }
+
+    // ── Roster ───────────────────────────────────────────────────────────────
+
+    private void SendControl(VlanControlDto dto)
+    {
+        try { _p2p.SendToAll(MessageType.VirtualLanControl, JsonSerializer.SerializeToUtf8Bytes(dto), DeliveryMethod.ReliableOrdered); }
+        catch { }
+    }
+
+    /// <summary>Host → everyone: the full list with each member's ping to us. Small, and
+    /// sent reliable-unordered so a lost one does not hold anything else back.</summary>
+    private void BroadcastRoster()
+    {
+        if (!_isHost || !_active) return;
+        var members = new List<VlanMemberDto>
+        {
+            new() { Name = _myName, Ip = AssignedIp, Host = true, Status = PresenceMonitor.Code(_myPresence), Rtt = 0 }
+        };
+        foreach (var (peerId, g) in _guests)
+            members.Add(new VlanMemberDto { Name = g.Name, Ip = Ip(g.Vip), Host = false,
+                                            Status = PresenceMonitor.Code(g.Status), Rtt = Math.Max(0, _p2p.GetRtt(peerId)) });
+        try
+        {
+            _p2p.SendToAll(MessageType.VirtualLanControl,
+                JsonSerializer.SerializeToUtf8Bytes(new VlanControlDto { Op = "roster", Members = members.ToArray() }),
+                DeliveryMethod.ReliableUnordered);
+        }
+        catch { }
+    }
+
+    private void ApplyRoster(VlanMemberDto[] members)
+    {
+        var old = _roster;
+        var fresh = members
+            .Where(m => m.Name.Length > 0)
+            .Select(m => new VlanMember(m.Name, m.Ip, m.Host, IsSelf: m.Ip == AssignedIp, PresenceMonitor.Parse(m.Status), m.Rtt))
+            .ToList();
+        _roster = fresh;
+
+        // Announce arrivals and departures of the *others*; the first roster after
+        // joining is the starting line-up, not a burst of joins.
+        if (old.Count > 0)
+        {
+            foreach (var m in fresh.Where(m => !m.IsSelf && old.All(o => o.Ip != m.Ip)))
+                MemberJoined?.Invoke(m.Name, m.Ip);
+            foreach (var m in old.Where(o => !o.IsSelf && fresh.All(f => f.Ip != o.Ip)))
+                MemberLeft?.Invoke(m.Name, m.Ip);
+        }
+        MembersChanged?.Invoke();
+    }
+
+    // ── Invite refresh ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Re-reads the public address and, if the line has moved, re-maps the port on the
+    /// router (its old mapping may have died with the session) and announces the new
+    /// invite. Runs on a timer thread; everything it touches is already thread-safe.
+    /// </summary>
+    private async Task RefreshInviteAsync()
+    {
+        if (!_active || !_isHost) return;
+        try
+        {
+            var probe = await _mapper.ProbeAsync().ConfigureAwait(false);
+            string? now = probe.ObservedIp ?? probe.ExternalIp;
+            if (now is not { Length: > 0 } || now == PublicEndpoint) return;
+
+            // A new WAN session on a consumer router usually forgets its UPnP table.
+            await _mapper.MapAsync(VlanPort, "VirtualLAN Platform").ConfigureAwait(false);
+
+            PublicEndpoint = now;
+            if (InviteCode is { } code) InviteChanged?.Invoke(code);
+        }
+        catch { /* transient; the next tick tries again */ }
+    }
+
+    // ── Invite parsing ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Splits an invite ("public", "public|lan" or "lan") into dial attempts. An address
+    /// on one of this machine's own subnets goes first with a short budget — on the same
+    /// LAN it answers within a second or not at all — and the rest follow with the full
+    /// timeout. Anything that fails to parse is dropped rather than dialled.
+    /// </summary>
+    private static IEnumerable<(string Address, TimeSpan Timeout)> OrderCandidates(string invite)
+    {
+        var raw = invite.Split(new[] { '|', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(a => a.Trim())
+                        .Where(a => System.Net.IPAddress.TryParse(a, out _))
+                        .Distinct()
+                        .ToList();
+
+        var subnets = LocalSubnets();
+        var near = raw.Where(a => subnets.Any(sub => SameSubnet(System.Net.IPAddress.Parse(a), sub.Ip, sub.Prefix))).ToList();
+        var far  = raw.Except(near).ToList();
+
+        foreach (var a in near) yield return (a, TimeSpan.FromSeconds(4));
+        foreach (var a in far)  yield return (a, TimeSpan.FromSeconds(15));
+    }
+
+    private static bool SameSubnet(System.Net.IPAddress a, System.Net.IPAddress b, int prefix)
+    {
+        if (prefix <= 0 || prefix > 32) return false;
+        uint x = ToUInt(a), y = ToUInt(b);
+        uint mask = prefix == 32 ? 0xFFFF_FFFF : 0xFFFF_FFFFu << (32 - prefix);
+        return (x & mask) == (y & mask);
+    }
+
+    private static uint ToUInt(System.Net.IPAddress ip)
+    {
+        byte[] b = ip.GetAddressBytes();
+        return (uint)(b[0] << 24 | b[1] << 16 | b[2] << 8 | b[3]);
+    }
+
+    private static List<(System.Net.IPAddress Ip, int Prefix)> LocalSubnets()
+    {
+        var list = new List<(System.Net.IPAddress, int)>();
+        try
+        {
+            foreach (var n in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (n.OperationalStatus != OperationalStatus.Up) continue;
+                foreach (var u in n.GetIPProperties().UnicastAddresses)
+                {
+                    if (u.Address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) continue;
+                    list.Add((u.Address, u.PrefixLength));
+                }
+            }
+        }
+        catch { }
+        return list;
+    }
+
+    private static string? FirstLanAddress()
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up
+                         && (n.NetworkInterfaceType is NetworkInterfaceType.Ethernet or NetworkInterfaceType.Wireless80211)
+                         && n.Name != AdapterHint)
+                .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+                .Select(u => u.Address)
+                .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                                  && !a.ToString().StartsWith("169.254.", StringComparison.Ordinal))
+                ?.ToString();
+        }
+        catch { return null; }
     }
 
     // ── Firewall ─────────────────────────────────────────────────────────────
@@ -489,5 +787,16 @@ public sealed class VirtualLanManager : IDisposable
         [JsonPropertyName("op")]   public string  Op   { get; set; } = "";
         [JsonPropertyName("ip")]   public string  Ip   { get; set; } = "";
         [JsonPropertyName("mask")] public string  Mask { get; set; } = "";
+        [JsonPropertyName("s")]    public string? Status { get; set; }
+        [JsonPropertyName("m")]    public VlanMemberDto[]? Members { get; set; }
+    }
+
+    private sealed class VlanMemberDto
+    {
+        [JsonPropertyName("n")]  public string Name   { get; set; } = "";
+        [JsonPropertyName("ip")] public string Ip     { get; set; } = "";
+        [JsonPropertyName("h")]  public bool   Host   { get; set; }
+        [JsonPropertyName("s")]  public string Status { get; set; } = "online";
+        [JsonPropertyName("r")]  public int    Rtt    { get; set; }
     }
 }

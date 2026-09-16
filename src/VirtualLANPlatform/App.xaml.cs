@@ -10,9 +10,18 @@ namespace VirtualLANPlatform;
 
 public partial class App : Application
 {
+    /// <summary>
+    /// Launched by the logon task with --tray and the user asked to start hidden: the
+    /// main window opens straight into the tray instead of on the desktop.
+    /// </summary>
+    public static bool StartHidden { get; private set; }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        StartHidden = e.Args.Any(a => string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase))
+                   && Core.Services.AppSettings.I.StartInTray;
 
         // Uninstall hook: the installer cannot remove a Wintun adapter on its own, so it
         // runs us with this switch first. Handle it before any UI exists and exit.
@@ -36,9 +45,17 @@ public partial class App : Application
 
         DispatcherUnhandledException += (_, args) =>
         {
+            Core.Services.AppLog.Error("app", "unhandled UI exception", args.Exception);
             MessageBox.Show(args.Exception.Message, UI.Localization.Loc.T("App_UnexpectedError"),
                 MessageBoxButton.OK, MessageBoxImage.Error);
             args.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            Core.Services.AppLog.Error("app", "unhandled exception", args.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Core.Services.AppLog.Warn("app", $"unobserved task exception: {args.Exception.InnerException?.Message ?? args.Exception.Message}");
+            args.SetObserved();
         };
     }
 

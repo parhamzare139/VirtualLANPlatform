@@ -43,6 +43,8 @@
     <Resource Include="Assets\Fonts\*.ttf" />
     <!-- 3D emoji set — curated subset from bignutty/fluent-emoji (MIT), mirroring Microsoft's Fluent Emoji -->
     <Resource Include="Assets\Emoji3D\*.png" />
+    <!-- UI sound cues, generated in-house (see scratch gen_sounds.py); tiny 16-bit mono WAVs -->
+    <Resource Include="Assets\Sounds\*.wav" />
   </ItemGroup>
 
 </Project>

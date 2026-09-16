@@ -30,6 +30,7 @@ using VirtualLANPlatform.Core.Room;
 using VirtualLANPlatform.Core.ScreenShare;
 using VirtualLANPlatform.Core.Services;
 using VirtualLANPlatform.Core.Storage;
+using VirtualLANPlatform.Core.Services;
 using VirtualLANPlatform.Core.Voice;
 using VirtualLANPlatform.UI.Emoji;
 
@@ -85,10 +86,21 @@ public partial class TestWindow : Window
     private static readonly string AdapterPath  = DataPath("adapter.txt");
     private static readonly string VolumePath   = DataPath("volume.txt");
 
-    private record AdapterItem(string Name, string IP)
+    private record AdapterItem(string Name, string IP, bool IsAuto = false)
     {
-        public override string ToString() => $"{IP}  ({Name})";
+        public override string ToString() => IsAuto
+            ? $"{Loc.T("Lobby_AdapterAuto")} — {IP}  ({Name})"
+            : $"{IP}  ({Name})";
     }
+
+    private const string AutoAdapterMarker = "*auto*";
+
+    // Rescans once a second. Cheap (a few ms) and it means plugging in a cable or joining
+    // a Wi-Fi shows up in the list without anyone pressing anything; the list is only
+    // rebuilt when the set of adapters actually changed, so it never flickers or steals
+    // a selection the user is in the middle of making.
+    private System.Windows.Threading.DispatcherTimer? _adapterWatch;
+    private string _adapterSignature = "";
 
     [DllImport("user32.dll")] private static extern bool MessageBeep(uint uType);
 
@@ -102,15 +114,19 @@ public partial class TestWindow : Window
 
         _memberTimer = new System.Windows.Threading.DispatcherTimer
             { Interval = TimeSpan.FromSeconds(1) };
-        _memberTimer.Tick += (_, _) => RefreshMemberList();
+        _memberTimer.Tick += (_, _) => { RefreshMemberList(); ExpireTyping(); };
         _memberTimer.Start();
 
         InitTrayIcon();
+        InitTrayMenu();
         WireEvents();
         LoadSavedUsername();
         LoadSavedPort();
         LoadSavedVolume();
         LoadAdapters();
+        _adapterWatch = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _adapterWatch.Tick += (_, _) => LoadAdapters();
+        _adapterWatch.Start();
         LoadWindowIcon();
         EmojiPickerCtl.Picked += InsertEmoji;
 
@@ -119,12 +135,14 @@ public partial class TestWindow : Window
             new System.Windows.Navigation.RequestNavigateEventHandler(OnLinkNavigate));
 
         WireVirtualLan();
+        InitFeatures();
 
         Loc.I.LanguageChanged += OnLanguageChanged;
 
         Loaded += (_, _) =>
         {
             FadeInWindow();
+            InitFeaturesLoaded();
             // Gate the lobby behind an update check on every launch.
             _ = RunUpdateGate(startup: true);
         };
@@ -171,6 +189,11 @@ public partial class TestWindow : Window
             {
                 Notify(Loc.T("Vlan_OnTitle"), Loc.T("Vlan_OnBody", ip), ToastKind.Success);
             }
+            else if (_vlan.LanEndpoint is { Length: > 0 })
+            {
+                // No public route, but the LAN one is real and worth handing out.
+                Notify(Loc.T("Vlan_OnLocalTitle"), Loc.T("Vlan_OnLocalBodyLan", _vlan.LanEndpoint), ToastKind.Warn);
+            }
             else
             {
                 // The port could not be opened, so only the local network can reach us.
@@ -186,6 +209,12 @@ public partial class TestWindow : Window
         });
 
         _vlan.StatusChanged += s  => Dispatch(() => { if (_vlan.IsActive) VlanStatusText.Text = s; });
+        _vlan.InviteChanged += code => Dispatch(() =>
+        {
+            RenderVlanState();
+            Notify(Loc.T("Vlan_InviteMovedTitle"), Loc.T("Vlan_InviteMovedBody", code),
+                   ToastKind.Warn, alsoTray: true);
+        });
         _vlan.Error        += msg => Dispatch(() =>
         {
             Notify(Loc.T("Vlan_ErrTitle"), msg, ToastKind.Error, alsoTray: true);
@@ -212,8 +241,9 @@ public partial class TestWindow : Window
         VlanRoleText.Text = Loc.T(_vlan.IsHost ? "Vlan_RoleHost" : "Vlan_RoleGuest");
 
         // Only the host has an address worth handing out; a guest is already inside.
-        VlanInviteBtn.Visibility = _vlan.IsHost && _vlan.PublicEndpoint is { Length: > 0 }
-            ? Visibility.Visible : Visibility.Collapsed;
+        bool hasInvite = _vlan.IsHost && _vlan.InviteCode is { Length: > 0 };
+        VlanInviteRow.Visibility = hasInvite ? Visibility.Visible : Visibility.Collapsed;
+        if (hasInvite) VlanInviteText.Text = _vlan.InviteCode!;
     }
 
     private async void VlanHost_Click(object sender, RoutedEventArgs e)
@@ -276,7 +306,8 @@ public partial class TestWindow : Window
 
         // 3. Our firewall rules. Missing is recoverable — they are re-added on connect.
         await Task.Delay(220);
-        bool fwOk = FirewallRuleExists("VirtualLANPlatform VLAN");
+        // netsh can take seconds; keep the window (and the push-to-talk hook) responsive.
+        bool fwOk = await Task.Run(() => FirewallRuleExists("VirtualLANPlatform VLAN"));
         Set(firewall, fwOk ? CheckState.Ok : CheckState.Warn,
             Loc.T(fwOk ? "Pf_FirewallOk" : "Pf_FirewallWarn"));
 
@@ -297,7 +328,10 @@ public partial class TestWindow : Window
             case UpnpState.CarrierNat:
                 // The router is fine; the ISP is the blocker, so do not blame the router.
                 Set(upnp,  CheckState.Ok,   probe.RouterName is { Length: > 0 } r2 ? r2 : Loc.T("Pf_UpnpOn"));
-                Set(reach, CheckState.Fail, Loc.T("Pf_ReachCgnat", probe.ExternalIp));
+                Set(reach, CheckState.Fail,
+                    probe.ObservedIp is { Length: > 0 } seen && seen != probe.ExternalIp
+                        ? Loc.T("Pf_ReachDoubleNat", probe.ExternalIp, seen)
+                        : Loc.T("Pf_ReachCgnat", probe.ExternalIp));
                 break;
 
             case UpnpState.NoService:
@@ -488,7 +522,8 @@ public partial class TestWindow : Window
             // The VLAN's own firewall rule (port 42778) is opened unconditionally at
             // app startup — no need to touch the chat room's port/firewall state here.
             string username = UsernameBox.Text.Trim() is { Length: > 0 } u ? u : Loc.T("Vlan_DefaultHostName");
-            bool ok = await _vlan.HostAsync(username, GetSelectedAdapterIP());
+            _vlan.SetMyPresence(_settings.ShareStatus ? _presence.Current : Presence.Online);
+            bool ok = await _vlan.HostAsync(username);
             if (!ok)
                 Notify(Loc.T("Vlan_FailedTitle"), Loc.T("Vlan_FailedBody"), ToastKind.Error);
         }
@@ -518,7 +553,9 @@ public partial class TestWindow : Window
                 UpnpIcon.Foreground     = Res("Danger");
                 UpnpTitle.Text          = Loc.T("Help_CgnatTitle");
                 UpnpSubtitle.Text       = probe.RouterName ?? "";
-                UpnpExplain.Text = Loc.T("Help_CgnatBody", probe.ExternalIp);
+                UpnpExplain.Text = probe.ObservedIp is { Length: > 0 } seen && seen != probe.ExternalIp
+                    ? Loc.T("Help_DoubleNatBody", probe.ExternalIp, seen)
+                    : Loc.T("Help_CgnatBody", probe.ExternalIp);
                 AddStep(1, Loc.T("Help_CgnatStep1"), Loc.T("Help_CgnatStep1B"));
                 AddStep(2, Loc.T("Help_CgnatStep2"), Loc.T("Help_CgnatStep2B"));
                 AddStep(3, Loc.T("Help_CgnatStep3"), Loc.T("Help_CgnatStep3B"));
@@ -706,10 +743,25 @@ public partial class TestWindow : Window
         try
         {
             string username = UsernameBox.Text.Trim() is { Length: > 0 } u ? u : Loc.T("Vlan_DefaultGuestName");
+            _vlan.SetMyPresence(_settings.ShareStatus ? _presence.Current : Presence.Online);
             if (!await _vlan.JoinAsync(hostIp, username))
-                Notify(Loc.T("Vlan_JoinFailTitle"), Loc.T("Vlan_JoinFailBody"), ToastKind.Error);
+                ShowVlanJoinFailure();
         }
         finally { _vlanBusy = false; RenderVlanState(); }
+    }
+
+    /// <summary>
+    /// A join timing out almost never means a wrong IP. It means the host's side was not
+    /// reachable — its router never opened the port, its ISP blocks inbound, or both
+    /// machines are in the same house and the public address was dialled. Say that, and
+    /// say what to do, because "check the IP" sends people to re-type a correct address.
+    /// </summary>
+    private async void ShowVlanJoinFailure()
+    {
+        await ShowModal(
+            Loc.T("Vlan_JoinFailTitle"),
+            Loc.T("Vlan_JoinFailExplain"),
+            Loc.T("Common_Ok"), null);
     }
 
     private async void VlanDisconnect_Click(object sender, RoutedEventArgs e)
@@ -721,13 +773,16 @@ public partial class TestWindow : Window
         finally { _vlanBusy = false; RenderVlanState(); }
     }
 
-    private void VlanInviteCopy_Click(object sender, RoutedEventArgs e)
+    private async void VlanInviteCopy_Click(object sender, RoutedEventArgs e)
     {
-        if (_vlan.PublicEndpoint is not { Length: > 0 } pub) return;
+        if (_vlan.InviteCode is not { Length: > 0 } code) return;
         try
         {
-            Clipboard.SetText(pub);
-            ShowToast(Loc.T("Vlan_InviteCopied"), Loc.T("Vlan_InviteCopiedBody", pub), ToastKind.Success);
+            Clipboard.SetText(code);
+            ShowToast(Loc.T("Vlan_InviteCopied"), Loc.T("Vlan_InviteCopiedBody", code), ToastKind.Success);
+            VlanInviteCopied.Opacity = 1;
+            await Task.Delay(1500);
+            VlanInviteCopied.Opacity = 0;
         }
         catch { }
     }
@@ -857,7 +912,7 @@ public partial class TestWindow : Window
     // ── Join IP field ────────────────────────────────────────────────────────
 
     private void JoinCodeBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
-        => e.Handled = !e.Text.All(c => char.IsDigit(c) || c is '.' or ':');
+        => e.Handled = !e.Text.All(c => char.IsDigit(c) || c is '.' or ':' or '|');
 
     private void JoinCodeBox_Pasting(object sender, DataObjectPastingEventArgs e)
     {
@@ -865,7 +920,7 @@ public partial class TestWindow : Window
         {
             string text = (e.DataObject.GetData(System.Windows.DataFormats.Text) as string ?? "").Trim();
             bool ok = text.StartsWith("vlan://", StringComparison.OrdinalIgnoreCase)
-                   || text.All(c => char.IsDigit(c) || c is '.' or ':');
+                   || text.All(c => char.IsDigit(c) || c is '.' or ':' or '|');
             if (!ok) e.CancelCommand();
         }
         else e.CancelCommand();
@@ -885,34 +940,89 @@ public partial class TestWindow : Window
 
     private void LoadAdapters()
     {
+        var scanned = ScanAdapters();
+
+        // Nothing changed since last tick: leave the control alone.
+        string signature = string.Join("|", scanned.Select(a => a.Name + "=" + a.IP));
+        var (autoName, autoIp) = BestAdapter(scanned);
+        signature += "|auto=" + autoIp;
+        if (signature == _adapterSignature) return;
+        _adapterSignature = signature;
+
+        // What was selected before the rebuild: a manual pick survives while its adapter
+        // still exists; anything else lands on Auto.
+        string? keepName = (AdapterBox.SelectedItem as AdapterItem) is { IsAuto: false } cur
+            ? cur.Name
+            : Load(AdapterPath) is { Length: > 0 } saved && saved != AutoAdapterMarker ? saved : null;
+
         AdapterBox.Items.Clear();
-        string? savedName = Load(AdapterPath);
-
+        AdapterBox.Items.Add(new AdapterItem(autoName, autoIp, IsAuto: true));
         int selectIdx = 0;
-        var interfaces = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-            .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up
-                     && n.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
-            .ToList();
-
-        foreach (var iface in interfaces)
+        foreach (var a in scanned)
         {
-            var ip = iface.GetIPProperties().UnicastAddresses
-                .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                ?.Address.ToString();
-            if (ip == null) continue;
-
-            var item = new AdapterItem(iface.Name, ip);
-            int idx = AdapterBox.Items.Add(item);
-            if (iface.Name == savedName) selectIdx = idx;
+            int idx = AdapterBox.Items.Add(a);
+            if (a.Name == keepName) selectIdx = idx;
         }
+        AdapterBox.SelectedIndex = selectIdx;
+    }
 
-        if (AdapterBox.Items.Count > 0)
-            AdapterBox.SelectedIndex = selectIdx;
+    private static List<AdapterItem> ScanAdapters()
+    {
+        var list = new List<AdapterItem>();
+        try
+        {
+            foreach (var iface in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (iface.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                if (iface.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback) continue;
+                var ip = iface.GetIPProperties().UnicastAddresses
+                    .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                    ?.Address.ToString();
+                if (ip == null) continue;
+                list.Add(new AdapterItem(iface.Name, ip));
+            }
+        }
+        catch { }
+        return list;
+    }
+
+    /// <summary>
+    /// The adapter the machine is actually using right now: the one carrying the default
+    /// route. Asking the OS which local address it would source a packet to the internet
+    /// from answers that exactly, and it moves by itself when the user plugs in a cable
+    /// or joins a different Wi-Fi — which is what "pick the newest connection" means in
+    /// practice. Falls back to the first physical adapter when there is no route at all.
+    /// </summary>
+    private static (string Name, string IP) BestAdapter(List<AdapterItem> scanned)
+    {
+        try
+        {
+            using var sock = new System.Net.Sockets.Socket(
+                System.Net.Sockets.AddressFamily.InterNetwork,
+                System.Net.Sockets.SocketType.Dgram,
+                System.Net.Sockets.ProtocolType.Udp);
+            sock.Connect("8.8.8.8", 53); // no packet is sent for a UDP connect
+            string ip = ((System.Net.IPEndPoint)sock.LocalEndPoint!).Address.ToString();
+            var hit = scanned.FirstOrDefault(a => a.IP == ip);
+            if (hit != null) return (hit.Name, hit.IP);
+        }
+        catch { }
+
+        // Offline: prefer real hardware over anything virtual.
+        var physical = scanned.FirstOrDefault(a =>
+            !a.Name.Contains("VMware", StringComparison.OrdinalIgnoreCase) &&
+            !a.Name.Contains("VirtualBox", StringComparison.OrdinalIgnoreCase) &&
+            !a.Name.Contains("Hyper-V", StringComparison.OrdinalIgnoreCase) &&
+            !a.Name.Equals("VirtualLAN", StringComparison.OrdinalIgnoreCase) &&
+            !a.IP.StartsWith("169.254.", StringComparison.Ordinal));
+        var pick = physical ?? scanned.FirstOrDefault();
+        return pick != null ? (pick.Name, pick.IP) : ("—", "127.0.0.1");
     }
 
     private void AdapterBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (AdapterBox.SelectedItem is AdapterItem item) Save(AdapterPath, item.Name);
+        if (AdapterBox.SelectedItem is AdapterItem item)
+            Save(AdapterPath, item.IsAuto ? AutoAdapterMarker : item.Name);
     }
 
     private void RefreshAdapters_Click(object sender, RoutedEventArgs e) => LoadAdapters();
@@ -972,6 +1082,7 @@ public partial class TestWindow : Window
 
     private void ShowNotification(string title, string body)
     {
+        if (!_settings.WindowsNotifications) return;
         try { _trayIcon?.ShowBalloonTip(4000, title, body, System.Windows.Forms.ToolTipIcon.Info); }
         catch { }
     }
@@ -1128,7 +1239,8 @@ public partial class TestWindow : Window
     }
 
     private Task<bool> ShowModal(string title, string message,
-        string? confirmText = null, string? cancelText = null, bool isDanger = false)
+        string? confirmText = null, string? cancelText = null, bool isDanger = false,
+        bool startAligned = false)
     {
         // Resolved here rather than as parameter defaults: a default is baked in at
         // compile time and would keep whichever language the app started in.
@@ -1137,6 +1249,9 @@ public partial class TestWindow : Window
 
         ModalTitle.Text   = title;
         ModalMessage.Text = message;
+        // Lists read from the start edge; a sentence or two reads centred. "Left" is
+        // the leading edge under either flow direction, so it is right for Persian too.
+        ModalMessage.TextAlignment = startAligned ? TextAlignment.Left : TextAlignment.Center;
         ModalButtons.Children.Clear();
 
         _modalTcs?.TrySetResult(false);
@@ -1181,30 +1296,6 @@ public partial class TestWindow : Window
     }
 
     private void ModalDialog_StopPropagation(object sender, MouseButtonEventArgs e) => e.Handled = true;
-
-    private void PlayDownloadSound()
-    {
-        try
-        {
-            string[] candidates = [
-                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
-                    @"Media\Windows Notify Messaging.wav"),
-                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
-                    @"Media\Windows Ding.wav"),
-                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
-                    @"Media\chord.wav"),
-            ];
-            string? wav = candidates.FirstOrDefault(System.IO.File.Exists);
-            if (wav != null)
-            {
-                var mp = new System.Windows.Media.MediaPlayer();
-                mp.Open(new Uri(wav, UriKind.Absolute));
-                mp.Play();
-            }
-            else MessageBeep(0x00000040);
-        }
-        catch { }
-    }
 
     // ── Room navigation ───────────────────────────────────────────────────────
 
@@ -1289,6 +1380,10 @@ public partial class TestWindow : Window
         VoiceStatus.Text = "—";
 
         _isRoomHost = null;
+        _typing.Clear();
+        RenderTyping();
+        _unreadChat = 0;
+        RenderUnread();
         ResetDebug();
         SetStatus("Status_Ready", StatusKind.Idle);
     }
@@ -1362,14 +1457,22 @@ public partial class TestWindow : Window
             // The local user's own join record arrives through this event too; don't
             // announce the user to themselves.
             if (!IsSelf(m.Username))
+            {
+                AppSounds.Play(AppSound.Join);
                 Notify(Loc.T("Room_JoinedTitle"), Loc.T("Room_JoinedBody", m.Username), ToastKind.Success, alsoTray: true);
+            }
         });
 
         _room.MemberLeft += m => Dispatch(() =>
         {
             RefreshMemberList();
             if (!IsSelf(m.Username))
+            {
+                AppSounds.Play(AppSound.Leave);
+                _typing.Remove(m.Username);
+                RenderTyping();
                 Notify(Loc.T("Room_LeftTitle"), Loc.T("Room_LeftBody", m.Username));
+            }
         });
 
         _room.RoomClosed += msg => Dispatch(() =>
@@ -1465,6 +1568,7 @@ public partial class TestWindow : Window
             if (_activeTab != "files") SetActiveTab("files");
             FileList.ScrollIntoView(notif);
             Activate();
+            AppSounds.Play(AppSound.File);
             VoiceStatus.Text = Loc.T("File_Incoming", info.FileName);
             Notify(Loc.T("File_ArrivedTitle"), Loc.T("File_ArrivedBody", info.FileName, FormatSize(info.Size)),
                    ToastKind.Info, alsoTray: true);
@@ -1492,6 +1596,7 @@ public partial class TestWindow : Window
                 bool sent = notif.IsSent;
                 notif.Status      = Loc.T(sent ? "File_SentMark" : "File_SavedMark");
                 notif.CanDownload = false;
+                if (!sent) { notif.LocalPath = path; notif.LoadPreview(); }
                 _fileNotifs.Remove(id);
                 VoiceStatus.Text = Loc.T(sent ? "File_SentStatus" : "File_SavedStatus", name);
 
@@ -1499,7 +1604,7 @@ public partial class TestWindow : Window
                     Notify(Loc.T("File_SentTitle"), Loc.T("File_SentBody", name), ToastKind.Success);
                 else
                 {
-                    PlayDownloadSound();
+                    AppSounds.Play(AppSound.File);
                     Notify(Loc.T("File_DoneTitle"), Loc.T("File_DoneBody", name),
                            ToastKind.Success, alsoTray: true);
                 }
@@ -1552,6 +1657,7 @@ public partial class TestWindow : Window
         string username = UsernameBox.Text.Trim() is { Length: > 0 } u ? u : Loc.T("Room_DefaultHost");
         Save(UsernamePath, username);
         _chat.SetUsername(username);
+        _room.SetMyPresence(_settings.ShareStatus ? _presence.Current : Presence.Online);
 
         try
         {
@@ -1561,8 +1667,12 @@ public partial class TestWindow : Window
             // host that changed it, with nothing telling either side why.
             await VirtualLANPlatform.App.EnsureFirewallRuleAsync(port);
 
-            var (ok, localIp, _) = await _room.CreateRoomAsync(
-                username, port: port, localIp: GetSelectedAdapterIP(), ct: _opCts!.Token);
+            // Listen on every interface; the adapter pick only decides which address to
+            // show the host for sharing. Pinning the socket to one adapter was the bug
+            // that left rooms unreachable when the pick was not the LAN.
+            var (ok, _, _) = await _room.CreateRoomAsync(
+                username, port: port, localIp: null, ct: _opCts!.Token);
+            string localIp = GetSelectedAdapterIP() ?? P2PManager.GetLocalIP();
 
             if (ok)
             {
@@ -1622,6 +1732,7 @@ public partial class TestWindow : Window
         string username = UsernameBox.Text.Trim() is { Length: > 0 } u ? u : Loc.T("Room_DefaultGuest");
         Save(UsernamePath, username);
         _chat.SetUsername(username);
+        _room.SetMyPresence(_settings.ShareStatus ? _presence.Current : Presence.Online);
 
         try
         {
@@ -1665,6 +1776,8 @@ public partial class TestWindow : Window
         {
             await Task.Delay(1800, cts.Token);
             SaveText.Text = Loc.T("Common_Save");
+        // The "Auto" row renders its label at build time; force a rebuild on the next tick.
+        _adapterSignature = "";
         if (_sharePlaceholderKey is { Length: > 0 } shareKey)
             SharePlaceholder.Text = Loc.T(shareKey);
             SaveIcon.Kind = PackIconLucideKind.Save;
@@ -1738,11 +1851,16 @@ public partial class TestWindow : Window
 
     private void SetMicVisual(bool active)
     {
-        MicIcon.Kind    = active ? PackIconLucideKind.Mic : PackIconLucideKind.MicOff;
-        MicBtn.Background = active ? Res("OkGrad") : Res("DangerGrad");
-        MicBtn.ToolTip  = _voice.IsForceMuted
+        MicIcon.Kind = active ? PackIconLucideKind.Mic : PackIconLucideKind.MicOff;
+
+        // Push-to-talk: the button is "armed" (dim) until the key is held, then green.
+        bool pttIdle = active && _voice.PushToTalk && !_voice.TalkKeyDown;
+        MicBtn.Background = !active ? Res("DangerGrad") : pttIdle ? Res("Elevated") : Res("OkGrad");
+        MicBtn.ToolTip = _voice.IsForceMuted
             ? Loc.T("Mod_MicLocked")
-            : active ? Loc.T("Mod_MicOn") : Loc.T("Mod_MicOff");
+            : !active ? Loc.T("Mod_MicOff")
+            : _voice.PushToTalk ? Loc.T("Vc_PttHint", PushToTalkHook.KeyName(_settings.PttKey))
+            : Loc.T("Mod_MicOn");
     }
 
     private void SetSpeakerVisual(bool active)
@@ -1919,8 +2037,10 @@ public partial class TestWindow : Window
         var notif = new FileNotification
         {
             Id = transferId, FileName = name, SizeText = FormatSize(size),
-            IsSent = true, Status = Loc.T("File_WaitingAccept"), CanDownload = false
+            IsSent = true, Status = Loc.T("File_WaitingAccept"), CanDownload = false,
+            LocalPath = path
         };
+        notif.LoadPreview();
         _fileNotifs[transferId] = notif;
         FileList.Items.Add(notif);
         SetActiveTab("files");
@@ -2020,9 +2140,17 @@ public partial class TestWindow : Window
         ChatList.Items.Add(msg);
         ChatList.ScrollIntoView(msg);
 
-        // Notify only when the message is from someone else and the user isn't
-        // looking (window inactive or minimized).
-        if (!msg.IsOwn && (!IsActive || WindowState == WindowState.Minimized))
+        if (msg.IsOwn) return;
+
+        // Their message landing is the end of their typing, whatever the indicator said.
+        if (_typing.Remove(msg.Sender)) RenderTyping();
+        AppSounds.Play(AppSound.Message);
+
+        // Not looking at the chat — other tab, other window, minimized, in the tray:
+        // count it on the tab, flash the taskbar, and (if allowed) raise a Windows toast.
+        if (ChatIsOnScreen) return;
+        CountUnread();
+        if (!IsActive || WindowState == WindowState.Minimized || !IsVisible)
         {
             string preview = msg.Text.Length > 120 ? msg.Text[..120] + "…" : msg.Text;
             ShowNotification(Loc.T("Chat_NewFrom", msg.Sender), preview);
@@ -2212,6 +2340,9 @@ public partial class TestWindow : Window
         _suppressChatInputChanged = true;
         try { EmojiComposer.TryConvertNearCaret(ChatInput); }
         finally { _suppressChatInputChanged = false; }
+
+        if (_room.IsActive)
+            _chat.NotifyTyping(EmojiComposer.GetPlainText(ChatInput).Trim().Length > 0);
     }
 
     // ── Screen share ──────────────────────────────────────────────────────────
@@ -2320,6 +2451,7 @@ public partial class TestWindow : Window
     private void SetActiveTab(string tab)
     {
         _activeTab = tab;
+        ClearUnreadIfVisible();
 
         if (tab != "chat" && EmojiPopup.IsOpen)
             EmojiPopup.IsOpen = false;
@@ -2369,10 +2501,13 @@ public partial class TestWindow : Window
     {
         var members = _room.GetMembers().OrderBy(m => m.Username, StringComparer.Ordinal).ToList();
 
-        // Skip the rebuild when nothing changed — this runs on a 1 s timer.
+        // Skip the rebuild when nothing changed — this runs on a 1 s timer. Statuses
+        // are refreshed in place so a dot can change colour without the row blinking.
         if (MemberList.Items.Count == members.Count &&
             members.Select((m, i) => (MemberList.Items[i] as MemberItem)?.Username == m.Username).All(x => x))
         {
+            for (int i = 0; i < members.Count; i++)
+                if (MemberList.Items[i] is MemberItem item) item.Status = members[i].Status;
             MemberCount.Text = members.Count.ToString();
             return;
         }
@@ -2387,7 +2522,8 @@ public partial class TestWindow : Window
                 IsSelf       = isSelf,
                 IsHostRole   = _room.IsHost && m.PeerId == -1,
                 CanModerate  = _room.IsHost && !isSelf && m.PeerId >= 0,
-                IsMuted      = _mutedMembers.Contains(m.Username)
+                IsMuted      = _mutedMembers.Contains(m.Username),
+                Status       = m.Status
             });
         }
 
@@ -2537,6 +2673,11 @@ public partial class TestWindow : Window
 
         // Member rows are built in code, so they carry their labels with them.
         RefreshMemberList();
+        RenderVlanMembers();
+        RenderTyping();
+        RenderUnread();
+        if (_ptt.Capturing) PttKeyBtn.Content = Loc.T("Settings_PressKey");
+        RenderLanguageButtons();
     }
 
     /// <summary>Null outside a room; otherwise whether this user is hosting it.</summary>
@@ -2619,6 +2760,7 @@ public partial class TestWindow : Window
             // check couldn't run. Being offline must not keep the user out of the app.
             default:
                 HideUpdateGate();
+                if (startup) MaybeShowWhatsNew();
                 break;
         }
     }
@@ -2824,13 +2966,27 @@ public partial class TestWindow : Window
     {
         if (_shutdownComplete) return; // second pass: teardown is done, let it close
 
+        // Closing the window while connected keeps the session alive in the tray — a
+        // game network that dies because someone alt-tabbed and hit X is the worst kind
+        // of surprise. With nothing running, close means close.
+        if (_settings.CloseToTray && !_exitRequested && (_room.IsActive || _vlan.IsActive))
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
+
         e.Cancel = true;
         ShutdownOverlay.Visibility = Visibility.Visible;
+        if (!IsVisible) Show(); // exiting from the tray: the overlay needs a window to sit in
 
         // UI-thread-owned pieces first, while we still are on it.
         _memberTimer.Stop();
+        _adapterWatch?.Stop();
         StopAudioPlayback();
+        DisposeFeatures();
         _trayIcon?.Dispose();
+        AppLog.Info("app", "closing");
 
         var teardown = Task.Run(() =>
         {
@@ -2864,7 +3020,33 @@ public sealed class MemberItem : INotifyPropertyChanged
     public string     Initial       => Username.TrimStart() is { Length: > 0 } s ? s[..1].ToUpperInvariant() : Loc.T("Member_Unknown");
     public Visibility ModVisibility => CanModerate ? Visibility.Visible : Visibility.Collapsed;
 
-    public string     RoleLabel      => IsSelf ? Loc.T("Member_You") : IsHostRole ? Loc.T("Member_HostBadge") : "";
+    private Presence _status;
+    /// <summary>Online / in a game / away — shown as the dot and, when not plain online, in the label.</summary>
+    public Presence Status
+    {
+        get => _status;
+        set
+        {
+            if (_status == value) return;
+            _status = value;
+            Notify(); Notify(nameof(StatusBrush)); Notify(nameof(StatusLabel));
+            Notify(nameof(RoleLabel)); Notify(nameof(RoleVisibility));
+        }
+    }
+    public Brush  StatusBrush => TestWindow.PresenceBrush(Status);
+    public string StatusLabel => TestWindow.PresenceLabel(Status);
+
+    public string RoleLabel
+    {
+        get
+        {
+            var parts = new List<string>(2);
+            if (IsSelf) parts.Add(Loc.T("Member_You"));
+            else if (IsHostRole) parts.Add(Loc.T("Member_HostBadge"));
+            if (Status != Presence.Online) parts.Add(StatusLabel);
+            return string.Join(" · ", parts);
+        }
+    }
     public Visibility RoleVisibility => RoleLabel.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
     private bool _isMuted;
@@ -2900,6 +3082,60 @@ public class FileNotification : INotifyPropertyChanged
     public bool   IsSent   { get; init; }
 
     public Visibility DownloadVisibility => IsSent ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>Where the bytes live on this machine: the source for a sent file, the
+    /// saved copy for a received one (null until the download completes).</summary>
+    public string? LocalPath { get; set; }
+
+    private static readonly HashSet<string> ImageExt = new(StringComparer.OrdinalIgnoreCase)
+        { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp" };
+
+    public bool IsImage => ImageExt.Contains(System.IO.Path.GetExtension(FileName));
+
+    public PackIconLucideKind Icon => System.IO.Path.GetExtension(FileName).ToLowerInvariant() switch
+    {
+        ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp" => PackIconLucideKind.Image,
+        ".mp4" or ".mkv" or ".avi" or ".mov" or ".webm"            => PackIconLucideKind.Film,
+        ".mp3" or ".wav" or ".flac" or ".ogg" or ".m4a"            => PackIconLucideKind.Music,
+        ".zip" or ".rar" or ".7z" or ".tar" or ".gz"               => PackIconLucideKind.FileArchive,
+        ".exe" or ".msi"                                           => PackIconLucideKind.AppWindow,
+        ".pdf" or ".doc" or ".docx" or ".txt" or ".md"             => PackIconLucideKind.FileText,
+        _                                                          => PackIconLucideKind.Paperclip
+    };
+
+    private System.Windows.Media.ImageSource? _preview;
+    public System.Windows.Media.ImageSource? Preview
+    {
+        get => _preview;
+        private set
+        {
+            _preview = value;
+            PropertyChanged?.Invoke(this, new(nameof(Preview)));
+            PropertyChanged?.Invoke(this, new(nameof(PreviewVisibility)));
+        }
+    }
+    public Visibility PreviewVisibility => Preview != null ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Decodes a small thumbnail off the UI thread; anything but a readable image is simply no preview.</summary>
+    public void LoadPreview()
+    {
+        if (!IsImage || LocalPath is not { Length: > 0 } path || !System.IO.File.Exists(path)) return;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption      = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 480;
+                bmp.UriSource        = new Uri(path, UriKind.Absolute);
+                bmp.EndInit();
+                bmp.Freeze();
+                System.Windows.Application.Current?.Dispatcher.BeginInvoke(() => Preview = bmp);
+            }
+            catch { }
+        });
+    }
 
     public string Status
     {

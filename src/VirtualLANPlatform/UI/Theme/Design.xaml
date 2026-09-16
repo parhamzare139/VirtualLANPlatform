@@ -521,6 +521,62 @@
     </Style>
 
     <!-- ═══════════════════════════════════════════════════════════════
+         SWITCH — a CheckBox drawn as a pill with a sliding knob (settings page)
+    ═══════════════════════════════════════════════════════════════ -->
+
+    <Style x:Key="Switch" TargetType="CheckBox">
+        <Setter Property="Cursor"    Value="Hand"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <!-- LeftToRight so "on" always slides the same way, whatever the UI language -->
+                    <Grid Width="46" Height="26" FlowDirection="LeftToRight" Background="Transparent">
+                        <Border x:Name="Track" CornerRadius="13" Background="#252C3D"
+                                BorderBrush="#39415A" BorderThickness="1"/>
+                        <Ellipse x:Name="Knob" Width="18" Height="18" Fill="#8C93A6"
+                                 HorizontalAlignment="Left" Margin="4,0,0,0">
+                            <Ellipse.RenderTransform>
+                                <TranslateTransform x:Name="KnobX" X="0"/>
+                            </Ellipse.RenderTransform>
+                        </Ellipse>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Track" Property="Background"  Value="{StaticResource Accent}"/>
+                            <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                            <Setter TargetName="Knob"  Property="Fill"        Value="White"/>
+                            <Trigger.EnterActions>
+                                <BeginStoryboard><Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="KnobX" Storyboard.TargetProperty="X"
+                                                     To="20" Duration="0:0:0.15">
+                                        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                                    </DoubleAnimation>
+                                </Storyboard></BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard><Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="KnobX" Storyboard.TargetProperty="X"
+                                                     To="0" Duration="0:0:0.15">
+                                        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                                    </DoubleAnimation>
+                                </Storyboard></BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Track" Property="BorderBrush" Value="#5A6280"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ═══════════════════════════════════════════════════════════════
          SURFACES & TEXT
     ═══════════════════════════════════════════════════════════════ -->
 

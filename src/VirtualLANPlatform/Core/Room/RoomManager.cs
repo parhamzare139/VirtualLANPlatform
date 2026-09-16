@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using VirtualLANPlatform.Core.Networking;
 using VirtualLANPlatform.Core.Protocol;
+using VirtualLANPlatform.Core.Services;
 using VirtualLANPlatform.Core.Storage;
 using LiteNetLib;
 
@@ -22,6 +23,10 @@ public sealed class RoomManager : IDisposable
     public string?  MyUsername { get; private set; }
 
     private readonly ConcurrentDictionary<int, MemberRecord> _members = new();
+    // What each member is up to, by username. Kept apart from the records because it
+    // changes on its own schedule and the records are rebuilt on every sync.
+    private readonly ConcurrentDictionary<string, Presence> _presence = new(StringComparer.Ordinal);
+    private Presence _myPresence = Presence.Online;
     private bool _disposed;
 
     public event Action<string>?         StatusChanged;
@@ -36,6 +41,9 @@ public sealed class RoomManager : IDisposable
 
     /// <summary>Raised on a guest when the host issues a moderation command against it.</summary>
     public event Action<string, bool>?   ModerationReceived;
+
+    /// <summary>A member's status changed: (username, status).</summary>
+    public event Action<string, Presence>? PresenceChanged;
 
     public RoomManager(P2PManager p2p, DatabaseManager db)
     {
@@ -70,8 +78,12 @@ public sealed class RoomManager : IDisposable
         var (ok, resolvedIp, boundPort) = await _p2p.StartAsHostAsync(username, port, localIp, ct);
         if (!ok) return (false, "", 0);
 
+        // Guests only ever talk to us; we carry their traffic to each other.
+        _p2p.RelayAsHost = true;
+
         RoomId   = GenerateRoomId();
         IsActive = true;
+        _presence[username] = _myPresence;
 
         _repo.SaveRoom(RoomId, username, port);
 
@@ -99,7 +111,26 @@ public sealed class RoomManager : IDisposable
         return true;
     }
 
-    public IReadOnlyList<MemberRecord> GetMembers() => _members.Values.ToList();
+    public IReadOnlyList<MemberRecord> GetMembers()
+        => _members.Values
+            .Select(m => m with { Status = _presence.TryGetValue(m.Username, out var p) ? p : Presence.Online })
+            .ToList();
+
+    public Presence GetPresence(string username)
+        => _presence.TryGetValue(username, out var p) ? p : Presence.Online;
+
+    // ── Presence ──────────────────────────────────────────────────────────────
+
+    /// <summary>Tells everyone what this user is doing. Cheap and rare, so always reliable.</summary>
+    public void SetMyPresence(Presence presence)
+    {
+        _myPresence = presence;
+        if (MyUsername is { } me) _presence[me] = presence;
+        if (!IsActive || !_p2p.IsRunning) return;
+        _p2p.SendToAll(MessageType.Presence,
+            new PresencePayload { Username = MyUsername ?? "", Status = PresenceMonitor.Code(presence) }.Serialize(),
+            DeliveryMethod.ReliableOrdered);
+    }
 
     // ── Moderation (host only) ────────────────────────────────────────────────
 
@@ -180,6 +211,12 @@ public sealed class RoomManager : IDisposable
             SendHandshakeResponse(peer.Id);
             BroadcastMemberSync("join", peer.Username);
         }
+        else
+        {
+            // Just connected to the host: tell it what we are up to so the roster it
+            // hands the next person already carries our status.
+            SetMyPresence(_myPresence);
+        }
 
         MemberJoined?.Invoke(member);
         StatusChanged?.Invoke(Loc.T("Rm_MembersN", _members.Count));
@@ -189,6 +226,7 @@ public sealed class RoomManager : IDisposable
     {
         if (_members.TryRemove(peerId, out var member))
         {
+            _presence.TryRemove(member.Username, out _);
             if (RoomId != null) _repo.RecordLeave(RoomId, member.Username);
             if (IsHost) BroadcastMemberSync("leave", member.Username);
             MemberLeft?.Invoke(member with { LeftAt = DateTime.UtcNow });
@@ -246,6 +284,18 @@ public sealed class RoomManager : IDisposable
                 break;
             }
 
+            case MessageType.Presence:
+            {
+                var pp = PresencePayload.Deserialize(frame.Payload.ToArray());
+                if (pp is { Username.Length: > 0 })
+                {
+                    var status = PresenceMonitor.Parse(pp.Status);
+                    _presence[pp.Username] = status;
+                    PresenceChanged?.Invoke(pp.Username, status);
+                }
+                break;
+            }
+
         }
     }
 
@@ -260,6 +310,7 @@ public sealed class RoomManager : IDisposable
         {
             var record = new MemberRecord(-2, dto.Username, DateTime.UtcNow);
             _members[dto.Username.GetHashCode()] = record;
+            if (dto.Status is { Length: > 0 }) _presence[dto.Username] = PresenceMonitor.Parse(dto.Status);
             MemberJoined?.Invoke(record);
         }
 
@@ -273,8 +324,12 @@ public sealed class RoomManager : IDisposable
 
         _members.Clear();
         foreach (var dto in sync.Members)
+        {
             _members[dto.Username.GetHashCode()] =
                 new MemberRecord(-2, dto.Username, DateTime.UtcNow);
+            if (dto.Status is { Length: > 0 }) _presence[dto.Username] = PresenceMonitor.Parse(dto.Status);
+        }
+        if (sync.Event == "leave") _presence.TryRemove(sync.Username, out _);
 
         var evtMember = new MemberRecord(-2, sync.Username, DateTime.UtcNow);
         if (sync.Event == "join") MemberJoined?.Invoke(evtMember);
@@ -289,7 +344,7 @@ public sealed class RoomManager : IDisposable
         {
             RoomId  = RoomId ?? "",
             Members = _members.Values
-                .Select(m => new MemberDto { Username = m.Username })
+                .Select(m => new MemberDto { Username = m.Username, Status = PresenceMonitor.Code(GetPresence(m.Username)) })
                 .ToArray()
         };
         _p2p.SendToPeer(peerId, MessageType.Handshake, hs.Serialize(),
@@ -303,7 +358,7 @@ public sealed class RoomManager : IDisposable
             Event    = evt,
             Username = username,
             Members  = _members.Values
-                .Select(m => new MemberDto { Username = m.Username })
+                .Select(m => new MemberDto { Username = m.Username, Status = PresenceMonitor.Code(GetPresence(m.Username)) })
                 .ToArray()
         };
         _p2p.SendToAll(MessageType.MemberSync, sync.Serialize(), DeliveryMethod.ReliableOrdered);
@@ -332,8 +387,10 @@ public sealed class RoomManager : IDisposable
     public void Shutdown()
     {
         IsActive = false;
+        _p2p.RelayAsHost = false;
         _p2p.Shutdown();
         _members.Clear();
+        _presence.Clear();
     }
 
     private static string GenerateRoomId()

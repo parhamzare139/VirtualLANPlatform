@@ -268,6 +268,15 @@
                         </Storyboard></BeginStoryboard>
                     </EventTrigger>
                 </Border.Triggers>
+                <StackPanel>
+                <!-- Pictures show themselves: a thumbnail above the usual file row, once the
+                     bytes are on this machine (immediately for the sender). Click opens it. -->
+                <Border Visibility="{Binding PreviewVisibility}" CornerRadius="10" Margin="0,0,0,10"
+                        Background="#0E121C" Padding="4" HorizontalAlignment="Left" Cursor="Hand"
+                        MouseLeftButtonUp="FilePreview_Click" ToolTip="{loc:Tr File_OpenTip}">
+                    <Image Source="{Binding Preview}" Stretch="Uniform" MaxHeight="240" MaxWidth="420"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                </Border>
                 <Grid FlowDirection="{Binding Flow, Source={x:Static loc:Loc.I}}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -277,7 +286,7 @@
 
                     <Border Grid.Column="0" Width="40" Height="40" CornerRadius="11"
                             Background="{StaticResource AccentGrad}" Margin="0,0,12,0">
-                        <ico:PackIconLucide Kind="Paperclip" Width="19" Height="19"
+                        <ico:PackIconLucide Kind="{Binding Icon}" Width="19" Height="19"
                                             Foreground="White"
                                             HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
@@ -313,6 +322,7 @@
                         </Button>
                     </StackPanel>
                 </Grid>
+                </StackPanel>
             </Border>
 
             <DataTemplate.Triggers>
@@ -350,18 +360,24 @@
 
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <!-- Presence: green online, violet in a game, amber away -->
+                    <Ellipse Grid.Column="0" Width="8" Height="8" Margin="1,0,9,0"
+                             VerticalAlignment="Center" Fill="{Binding StatusBrush}"
+                             ToolTip="{Binding StatusLabel}"/>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Username}" Foreground="{StaticResource TxtHi}"
                                    FontSize="12.5" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Text="{Binding RoleLabel}" Foreground="{StaticResource TxtLo}"
                                    FontSize="10" Visibility="{Binding RoleVisibility}"/>
                     </StackPanel>
 
-                    <StackPanel x:Name="Mod" Grid.Column="1" Orientation="Horizontal"
+                    <StackPanel x:Name="Mod" Grid.Column="2" Orientation="Horizontal"
                                 Opacity="0" Visibility="{Binding ModVisibility}">
                         <Button Style="{StaticResource Btn.IconSm}" Width="24" Height="24"
                                 ToolTip="{Binding MuteTip}" Tag="{Binding}" Click="ModMute_Click">
@@ -384,6 +400,55 @@
                     <Setter TargetName="MRoot" Property="Background" Value="#2A1520"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- ══════════ VIRTUAL LAN MEMBER ROW ══════════ -->
+        <DataTemplate DataType="{x:Type local:VlanMemberItem}">
+            <Border Background="#12161F" CornerRadius="10" Padding="11,8" Margin="0,0,0,6"
+                    BorderBrush="{StaticResource StrokeSoft}" BorderThickness="1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Ellipse Grid.Column="0" Width="9" Height="9" Margin="1,0,10,0"
+                             VerticalAlignment="Center" Fill="{Binding StatusBrush}"
+                             ToolTip="{Binding StatusLabel}"/>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Name}" Foreground="{StaticResource TxtHi}"
+                                   FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding SubLabel}" Foreground="{StaticResource TxtLo}"
+                                   FontSize="10.5" Margin="0,1,0,0" Visibility="{Binding SubVisibility}"/>
+                    </StackPanel>
+
+                    <!-- The address friends type into the game. Click copies it. -->
+                    <Border Grid.Column="2" Background="#1A2030" CornerRadius="8" Padding="10,5"
+                            BorderBrush="{StaticResource Stroke}" BorderThickness="1" Cursor="Hand"
+                            Margin="8,0,0,0" ToolTip="{loc:Tr Common_ClickToCopy}"
+                            Tag="{Binding Ip}" MouseLeftButtonUp="VlanMemberIp_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <ico:PackIconLucide Kind="Copy" Width="11" Height="11"
+                                                Foreground="{StaticResource TxtLo}"
+                                                VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock Text="{Binding Ip}" FontFamily="Consolas" FontSize="12.5"
+                                       Foreground="{StaticResource Accent2}" FontWeight="Bold"
+                                       FlowDirection="LeftToRight" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="3" Background="{Binding PingBg}" CornerRadius="8" Padding="9,5"
+                            Margin="8,0,0,0" MinWidth="64" ToolTip="{loc:Tr Vlan_PingTip}">
+                        <TextBlock Text="{Binding PingText}" FontFamily="Consolas" FontSize="12"
+                                   Foreground="{Binding PingBrush}" FontWeight="Bold"
+                                   FlowDirection="LeftToRight" HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                </Grid>
+            </Border>
         </DataTemplate>
 
     </Window.Resources>
@@ -438,6 +503,17 @@
                             <ico:PackIconLucide Kind="Languages" Width="13" Height="13"
                                                 VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <TextBlock Text="{loc:Tr Lang_Switch}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button x:Name="SettingsBtn" Style="{StaticResource Btn.Ghost}"
+                            Height="28" MinHeight="28" Padding="11,0" Margin="8,0,0,0"
+                            FontSize="11.5" VerticalAlignment="Center"
+                            ToolTip="{loc:Tr Settings_Title}" Click="Settings_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <ico:PackIconLucide Kind="Settings" Width="13" Height="13"
+                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="{loc:Tr Settings_Title}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
@@ -1102,20 +1178,34 @@
                                                FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0"/>
                                 </Grid>
                                 <!--
-                                  The join address is an action, not a second address to
-                                  read. Showing both as "IP" side by side was the single
-                                  most confusing thing in this card: users could not tell
-                                  which one went into the game.
+                                  Host only. The invite is shown, not just copied: people
+                                  read it out over voice or type it into a phone, so it has
+                                  to be visible. Labelled as a code, never as an "IP", so it
+                                  cannot be confused with the game address above it.
                                 -->
-                                <Button x:Name="VlanInviteBtn" Style="{StaticResource Btn.Ghost}"
-                                        HorizontalAlignment="Stretch" Height="44" Margin="0,0,0,10"
-                                        Visibility="Collapsed" Click="VlanInviteCopy_Click">
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                        <ico:PackIconLucide Kind="UserPlus" Width="15" Height="15"
-                                                            VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <TextBlock Text="{loc:Tr Vlan_CopyInvite}" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
+                                <Grid x:Name="VlanInviteRow" Margin="0,0,0,10" Visibility="Collapsed">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{loc:Tr Vlan_InviteLabel}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Border Grid.Column="1" Background="#12161F" CornerRadius="10"
+                                            BorderBrush="{StaticResource Ok}" BorderThickness="1"
+                                            Height="44" Padding="14,0">
+                                        <TextBlock x:Name="VlanInviteText" Text="—" Foreground="{StaticResource Ok}"
+                                                   FontFamily="Consolas" FontSize="15" FontWeight="Bold"
+                                                   VerticalAlignment="Center" FlowDirection="LeftToRight"/>
+                                    </Border>
+                                    <Button Grid.Column="2" x:Name="VlanInviteBtn" Style="{StaticResource Btn.Ghost}"
+                                            Padding="18,0" Height="44" Margin="8,0,0,0" Click="VlanInviteCopy_Click">
+                                        <TextBlock Text="{loc:Tr Common_Copy}" VerticalAlignment="Center"/>
+                                    </Button>
+                                    <TextBlock Grid.Column="3" x:Name="VlanInviteCopied" Text="✓" Foreground="{StaticResource Ok}"
+                                               FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0"/>
+                                </Grid>
 
                                 <StackPanel Orientation="Horizontal" Margin="2,0,0,10">
                                     <Border Background="#1D2436" CornerRadius="6" Padding="8,2"
@@ -1126,6 +1216,98 @@
                                     <TextBlock x:Name="VlanStatusText" Text="" Foreground="{StaticResource TxtLo}"
                                                FontSize="11.5" VerticalAlignment="Center" TextWrapping="Wrap"/>
                                 </StackPanel>
+
+                                <!-- How the link is doing right now -->
+                                <Border Background="#141926" CornerRadius="10" Padding="6,10" Margin="0,2,0,12"
+                                        BorderBrush="{StaticResource StrokeSoft}" BorderThickness="1">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="1"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="1"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="1"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="1"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Border x:Name="VlanQualityChip" Background="#1D2436" CornerRadius="7"
+                                                    Padding="9,3" HorizontalAlignment="Center">
+                                                <TextBlock x:Name="VlanQualityText" Text="—" FontSize="11.5" FontWeight="Bold"
+                                                           Foreground="{StaticResource TxtMid}"/>
+                                            </Border>
+                                            <TextBlock Text="{loc:Tr Vlan_Quality}" Style="{StaticResource Lbl}"
+                                                       HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="1" Background="{StaticResource StrokeSoft}" Margin="0,2"/>
+
+                                        <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                                            <TextBlock x:Name="VlanPingText" Text="—" Style="{StaticResource Val}"
+                                                       FontFamily="Consolas" FontSize="13" HorizontalAlignment="Center"
+                                                       FlowDirection="LeftToRight"/>
+                                            <TextBlock x:Name="VlanPingLabel" Text="{loc:Tr Vlan_Ping}" Style="{StaticResource Lbl}"
+                                                       HorizontalAlignment="Center" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="3" Background="{StaticResource StrokeSoft}" Margin="0,2"/>
+
+                                        <StackPanel Grid.Column="4" HorizontalAlignment="Center">
+                                            <TextBlock x:Name="VlanUpText" Text="0 KB/s" Style="{StaticResource Val}"
+                                                       FontFamily="Consolas" FontSize="13" HorizontalAlignment="Center"
+                                                       FlowDirection="LeftToRight"/>
+                                            <TextBlock Text="{loc:Tr Vlan_Upload}" Style="{StaticResource Lbl}"
+                                                       HorizontalAlignment="Center" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="5" Background="{StaticResource StrokeSoft}" Margin="0,2"/>
+
+                                        <StackPanel Grid.Column="6" HorizontalAlignment="Center">
+                                            <TextBlock x:Name="VlanDownText" Text="0 KB/s" Style="{StaticResource Val}"
+                                                       FontFamily="Consolas" FontSize="13" HorizontalAlignment="Center"
+                                                       FlowDirection="LeftToRight"/>
+                                            <TextBlock Text="{loc:Tr Vlan_Download}" Style="{StaticResource Lbl}"
+                                                       HorizontalAlignment="Center" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="7" Background="{StaticResource StrokeSoft}" Margin="0,2"/>
+
+                                        <StackPanel Grid.Column="8" HorizontalAlignment="Center">
+                                            <TextBlock x:Name="VlanLossText" Text="0%" Style="{StaticResource Val}"
+                                                       FontFamily="Consolas" FontSize="13" HorizontalAlignment="Center"
+                                                       FlowDirection="LeftToRight"/>
+                                            <TextBlock Text="{loc:Tr Vlan_Loss}" Style="{StaticResource Lbl}"
+                                                       HorizontalAlignment="Center" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Who is on the network -->
+                                <Grid Margin="2,0,2,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <ico:PackIconLucide Kind="Users" Width="14" Height="14"
+                                                            Foreground="{StaticResource TxtLo}"
+                                                            VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                        <TextBlock Text="{loc:Tr Vlan_Members}" Style="{StaticResource SectionLabel}"
+                                                   VerticalAlignment="Center"/>
+                                        <Border Background="#1D2436" CornerRadius="6" Padding="6,1" Margin="8,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock x:Name="VlanMemberCount" Text="1" FontSize="10"
+                                                       FontFamily="Consolas" Foreground="{StaticResource TxtMid}"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Text="{loc:Tr Vlan_MembersHint}"
+                                               Foreground="{StaticResource TxtLo}" FontSize="10.5"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                                <ItemsControl x:Name="VlanMemberList" Margin="0,0,0,6"/>
+                                <TextBlock x:Name="VlanAloneText" Text="{loc:Tr Vlan_Alone}"
+                                           Foreground="{StaticResource TxtLo}" FontSize="11.5"
+                                           TextWrapping="Wrap" Margin="2,0,2,12" Visibility="Collapsed"/>
+
                                 <Button x:Name="VlanDisconnectBtn" Style="{StaticResource Btn.Danger}"
                                         HorizontalAlignment="Stretch" Height="48" Click="VlanDisconnect_Click">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
@@ -1166,14 +1348,43 @@
 
                         <!-- Tab bar -->
                         <Border Grid.Row="0" BorderBrush="{StaticResource StrokeSoft}" BorderThickness="0,0,0,1">
-                            <StackPanel Orientation="Horizontal" Margin="4,0">
-                                <Button x:Name="TabChatBtn"  Style="{StaticResource Tab.Active}" Content="{loc:Tr Tab_Chat}"
-                                        Tag="chat"  Click="Tab_Click"/>
-                                <Button x:Name="TabFilesBtn" Style="{StaticResource Tab.Btn}"    Content="{loc:Tr Tab_Files}"
-                                        Tag="files" Click="Tab_Click"/>
-                                <Button x:Name="TabShareBtn" Style="{StaticResource Tab.Btn}"    Content="{loc:Tr Share_Tab}"
-                                        Tag="share" Click="Tab_Click" Visibility="Collapsed"/>
-                            </StackPanel>
+                            <Grid Margin="4,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                    <Button x:Name="TabChatBtn" Style="{StaticResource Tab.Active}"
+                                            Tag="chat" Click="Tab_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{loc:Tr Tab_Chat}" VerticalAlignment="Center"/>
+                                            <!-- Unread count while the user is on another tab or away -->
+                                            <Border x:Name="ChatUnreadBadge" Background="{StaticResource Accent}"
+                                                    CornerRadius="9" MinWidth="18" Height="18" Padding="5,0"
+                                                    Margin="7,0,0,0" Visibility="Collapsed" VerticalAlignment="Center">
+                                                <TextBlock x:Name="ChatUnreadText" Text="1" Foreground="White"
+                                                           FontSize="10" FontWeight="Bold" FontFamily="Consolas"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="TabFilesBtn" Style="{StaticResource Tab.Btn}"    Content="{loc:Tr Tab_Files}"
+                                            Tag="files" Click="Tab_Click"/>
+                                    <Button x:Name="TabShareBtn" Style="{StaticResource Tab.Btn}"    Content="{loc:Tr Share_Tab}"
+                                            Tag="share" Click="Tab_Click" Visibility="Collapsed"/>
+                                </StackPanel>
+
+                                <!-- "X is typing…" — lives up here so it never shifts the composer -->
+                                <StackPanel Grid.Column="1" x:Name="TypingPanel" Orientation="Horizontal"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                                            Margin="0,0,12,0" Visibility="Collapsed">
+                                    <ico:PackIconLucide Kind="Pencil" Width="12" Height="12"
+                                                        Foreground="{StaticResource Accent2}"
+                                                        VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock x:Name="TypingText" Foreground="{StaticResource TxtMid}"
+                                               FontSize="11.5" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
                         <!-- Chat messages. Sunk a shade below the panel so the bubbles read as
@@ -1298,18 +1509,6 @@
             </Grid>
 
         </Grid>
-
-        <!-- ══════════ TOAST OVERLAY ══════════ -->
-        <!--
-          Bottom corner rather than mid-screen: transient feedback shouldn't land on
-          top of whatever the user is reading. The bottom margin clears the composer.
-          Under RTL, HorizontalAlignment="Right" is the physical LEFT edge — away from
-          the member sidebar. The panel has no background, so only the toasts
-          themselves take the mouse; each one is dismissable.
-        -->
-        <StackPanel x:Name="ToastPanel" Grid.RowSpan="3"
-                    VerticalAlignment="Bottom" HorizontalAlignment="Right"
-                    Margin="18,0,18,86" Width="330"/>
 
         <!-- ══════════ UPDATE GATE ══════════ -->
         <!--
@@ -1546,6 +1745,447 @@
             </Border>
         </Grid>
 
+        <!-- ══════════ SETTINGS ══════════ -->
+        <!--
+          One scrolling page rather than tabs: there are five short groups, and a list
+          you can skim beats a nav you have to click through. Every switch saves on
+          click; there is no OK button to forget.
+        -->
+        <Grid x:Name="SettingsOverlay" Grid.RowSpan="3" Background="#F20A0C11"
+              Visibility="Collapsed">
+            <Border Background="{StaticResource Surface}" CornerRadius="16"
+                    BorderBrush="{StaticResource StrokeSoft}" BorderThickness="1"
+                    Width="720" Margin="0,34" VerticalAlignment="Stretch"
+                    HorizontalAlignment="Center">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="24,20,20,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Width="44" Height="44" CornerRadius="13" Background="{StaticResource AccentGrad}"
+                                Margin="0,0,14,0">
+                            <ico:PackIconLucide Kind="Settings" Width="21" Height="21" Foreground="White"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="{loc:Tr Settings_Title}" FontSize="17" FontWeight="Bold"
+                                       Foreground="{StaticResource TxtHi}"/>
+                            <TextBlock Text="{loc:Tr Settings_Subtitle}" FontSize="12"
+                                       Foreground="{StaticResource TxtLo}" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <Button Grid.Column="2" Style="{StaticResource Btn.IconSm}" Width="36" Height="36"
+                                ToolTip="{loc:Tr Common_Close}" Click="SettingsClose_Click">
+                            <ico:PackIconLucide Kind="X" Width="16" Height="16"/>
+                        </Button>
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled" Padding="24,0,24,20">
+                        <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="2,0,2,10">
+                            <ico:PackIconLucide Kind="SlidersHorizontal" Width="14" Height="14"
+                                                Foreground="{StaticResource Accent2}"
+                                                VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock Text="{loc:Tr Settings_General}" Style="{StaticResource SectionLabel}"
+                                       FontSize="11.5" Foreground="{StaticResource TxtMid}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border Style="{StaticResource Card}" Padding="18,16">
+                            <StackPanel>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_Language}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_LanguageDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button x:Name="LangFaBtn" Style="{StaticResource Btn.Ghost}" Height="34" MinHeight="34"
+                                            Padding="14,0" FontSize="12.5" Content="فارسی" Tag="fa" Click="LangPick_Click"/>
+                                    <Button x:Name="LangEnBtn" Style="{StaticResource Btn.Ghost}" Height="34" MinHeight="34"
+                                            Padding="14,0" FontSize="12.5" Content="English" Tag="en" Margin="8,0,0,0"
+                                            FontFamily="Segoe UI" Click="LangPick_Click"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_RunAtStartup}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_RunAtStartupDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox x:Name="StartupSwitch" Style="{StaticResource Switch}" Click="Setting_Toggled"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_StartInTray}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_StartInTrayDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox x:Name="StartTraySwitch" Style="{StaticResource Switch}" Click="Setting_Toggled"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_CloseToTray}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_CloseToTrayDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox x:Name="CloseTraySwitch" Style="{StaticResource Switch}" Click="Setting_Toggled"/>
+                                </StackPanel>
+                            </Grid>
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Margin="2,18,2,10">
+                            <ico:PackIconLucide Kind="Bell" Width="14" Height="14"
+                                                Foreground="{StaticResource Accent2}"
+                                                VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock Text="{loc:Tr Settings_Notifications}" Style="{StaticResource SectionLabel}"
+                                       FontSize="11.5" Foreground="{StaticResource TxtMid}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border Style="{StaticResource Card}" Padding="18,16">
+                            <StackPanel>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_WinNotify}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_WinNotifyDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox x:Name="WinNotifySwitch" Style="{StaticResource Switch}" Click="Setting_Toggled"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_Sounds}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_SoundsDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox x:Name="SoundsSwitch" Style="{StaticResource Switch}" Click="Setting_Toggled"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_SoundJoin}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_SoundJoinDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Style="{StaticResource Btn.IconSm}" Width="30" Height="30" Margin="0,0,10,0"
+                                            ToolTip="{loc:Tr Settings_Play}" Tag="join" Click="SoundTest_Click">
+                                        <ico:PackIconLucide Kind="Play" Width="13" Height="13"/>
+                                    </Button>
+                                    <CheckBox x:Name="SoundJoinSwitch" Style="{StaticResource Switch}" Click="Setting_Toggled"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_SoundMsg}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_SoundMsgDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Style="{StaticResource Btn.IconSm}" Width="30" Height="30" Margin="0,0,10,0"
+                                            ToolTip="{loc:Tr Settings_Play}" Tag="message" Click="SoundTest_Click">
+                                        <ico:PackIconLucide Kind="Play" Width="13" Height="13"/>
+                                    </Button>
+                                    <CheckBox x:Name="SoundMsgSwitch" Style="{StaticResource Switch}" Click="Setting_Toggled"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_SoundFile}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_SoundFileDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Style="{StaticResource Btn.IconSm}" Width="30" Height="30" Margin="0,0,10,0"
+                                            ToolTip="{loc:Tr Settings_Play}" Tag="file" Click="SoundTest_Click">
+                                        <ico:PackIconLucide Kind="Play" Width="13" Height="13"/>
+                                    </Button>
+                                    <CheckBox x:Name="SoundFileSwitch" Style="{StaticResource Switch}" Click="Setting_Toggled"/>
+                                </StackPanel>
+                            </Grid>
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Margin="2,18,2,10">
+                            <ico:PackIconLucide Kind="Mic" Width="14" Height="14"
+                                                Foreground="{StaticResource Accent2}"
+                                                VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock Text="{loc:Tr Settings_Voice}" Style="{StaticResource SectionLabel}"
+                                       FontSize="11.5" Foreground="{StaticResource TxtMid}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border Style="{StaticResource Card}" Padding="18,16">
+                            <StackPanel>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_Mic}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_MicDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ComboBox x:Name="InputDeviceBox" Style="{StaticResource Cmb}" Height="38" Width="260"
+                                              FlowDirection="LeftToRight" SelectionChanged="AudioDevice_Changed"/>
+                                </StackPanel>
+                            </Grid>
+                            <!-- Live input level: proves the chosen mic is the one that hears you -->
+                            <Grid Margin="0,-4,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{loc:Tr Settings_MicLevel}" Foreground="{StaticResource TxtLo}"
+                                           FontSize="11.5" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                <Border Grid.Column="1" Height="10" CornerRadius="5" Background="#1A2030"
+                                        BorderBrush="{StaticResource StrokeSoft}" BorderThickness="1"
+                                        FlowDirection="LeftToRight">
+                                    <Grid>
+                                        <Border x:Name="MicLevelFill" HorizontalAlignment="Left" Width="0"
+                                                CornerRadius="5" Background="{StaticResource OkGrad}"/>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_Speaker}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_SpeakerDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ComboBox x:Name="OutputDeviceBox" Style="{StaticResource Cmb}" Height="38" Width="260"
+                                              FlowDirection="LeftToRight" SelectionChanged="AudioDevice_Changed"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_Ptt}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_PttDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button x:Name="PttKeyBtn" Style="{StaticResource Btn.Ghost}" Height="34" MinHeight="34"
+                                            Padding="14,0" FontSize="12.5" FontFamily="Consolas" MinWidth="96"
+                                            Margin="0,0,10,0" Click="PttKey_Click" ToolTip="{loc:Tr Settings_PttKeyTip}"/>
+                                    <CheckBox x:Name="PttSwitch" Style="{StaticResource Switch}" Click="Setting_Toggled"/>
+                                </StackPanel>
+                            </Grid>
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Margin="2,18,2,10">
+                            <ico:PackIconLucide Kind="Activity" Width="14" Height="14"
+                                                Foreground="{StaticResource Accent2}"
+                                                VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock Text="{loc:Tr Settings_Status}" Style="{StaticResource SectionLabel}"
+                                       FontSize="11.5" Foreground="{StaticResource TxtMid}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border Style="{StaticResource Card}" Padding="18,16">
+                            <StackPanel>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_ShareStatus}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_ShareStatusDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox x:Name="ShareStatusSwitch" Style="{StaticResource Switch}" Click="Setting_Toggled"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="{loc:Tr Settings_Afk}" Foreground="{StaticResource TxtHi}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{loc:Tr Settings_AfkDesc}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" LineHeight="18"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBox x:Name="AfkBox" Style="{StaticResource Inp}" Width="72" Height="38" MinHeight="38"
+                                             FontFamily="Consolas" FontSize="13" TextAlignment="Center"
+                                             FlowDirection="LeftToRight" PreviewTextInput="PortBox_PreviewTextInput"
+                                             LostFocus="AfkBox_LostFocus" KeyDown="AfkBox_KeyDown"/>
+                                    <TextBlock Text="{loc:Tr Settings_Minutes}" Foreground="{StaticResource TxtLo}"
+                                               FontSize="11.5" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </StackPanel>
+                            </Grid>
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Margin="2,18,2,10">
+                            <ico:PackIconLucide Kind="Info" Width="14" Height="14"
+                                                Foreground="{StaticResource Accent2}"
+                                                VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock Text="{loc:Tr Settings_About}" Style="{StaticResource SectionLabel}"
+                                       FontSize="11.5" Foreground="{StaticResource TxtMid}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border Style="{StaticResource Card}" Padding="18,16">
+                            <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                                <Border Width="46" Height="46" CornerRadius="13" Padding="5"
+                                        Background="#1A1F2E" Margin="0,0,12,0">
+                                    <Image Source="pack://application:,,,/Assets/logo.png"
+                                           RenderOptions.BitmapScalingMode="Fant"/>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Virtual LAN Platform" Foreground="{StaticResource TxtHi}"
+                                               FontSize="14.5" FontWeight="Bold" FontFamily="Segoe UI"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                        <TextBlock x:Name="AboutVersion" Text="v1.0.8" Foreground="{StaticResource TxtLo}"
+                                                   FontSize="11.5" FontFamily="Consolas" VerticalAlignment="Center"/>
+                                        <TextBlock Text=" · " Foreground="{StaticResource TxtLo}" FontSize="11.5"/>
+                                        <TextBlock Foreground="{StaticResource TxtLo}" FontSize="11.5" VerticalAlignment="Center">
+                                            <Hyperlink NavigateUri="https://github.com/parhamzare139/VirtualLANPlatform"
+                                                       Foreground="{StaticResource Accent2}" TextDecorations="None">GitHub</Hyperlink>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                            <WrapPanel>
+                                <Button Style="{StaticResource Btn.Ghost}" Height="38" MinHeight="38" Padding="14,0"
+                                        FontSize="12.5" Margin="0,0,8,8" Click="WhatsNew_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <ico:PackIconLucide Kind="Sparkles" Width="13" Height="13" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="{loc:Tr Settings_WhatsNew}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="SettingsUpdateBtn" Style="{StaticResource Btn.Ghost}" Height="38" MinHeight="38" Padding="14,0"
+                                        FontSize="12.5" Margin="0,0,8,8" Click="SettingsCheckUpdate_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <ico:PackIconLucide x:Name="SettingsUpdateIcon" Kind="RefreshCw" Width="13" Height="13"
+                                                            VerticalAlignment="Center" Margin="0,0,6,0" RenderTransformOrigin="0.5,0.5">
+                                            <ico:PackIconLucide.RenderTransform>
+                                                <RotateTransform x:Name="SettingsUpdateSpin" Angle="0"/>
+                                            </ico:PackIconLucide.RenderTransform>
+                                        </ico:PackIconLucide>
+                                        <TextBlock Text="{loc:Tr Update_CheckTitle}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource Btn.Ghost}" Height="38" MinHeight="38" Padding="14,0"
+                                        FontSize="12.5" Margin="0,0,8,8" Click="Report_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <ico:PackIconLucide Kind="Bug" Width="13" Height="13" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="{loc:Tr Settings_Report}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource Btn.Ghost}" Height="38" MinHeight="38" Padding="14,0"
+                                        FontSize="12.5" Margin="0,0,8,8" Click="OpenLogs_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <ico:PackIconLucide Kind="FolderOpen" Width="13" Height="13" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="{loc:Tr Settings_Logs}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </WrapPanel>
+                            <!-- Result of the update check, right here — the user is on this page,
+                                 not behind it, so this is where the answer has to land. -->
+                            <Border x:Name="SettingsUpdateRow" Background="#141926" CornerRadius="10" Padding="12,9"
+                                    Margin="0,2,0,10" Visibility="Collapsed">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ico:PackIconLucide x:Name="SettingsUpdateStatusIcon" Kind="CircleCheck" Width="15" Height="15"
+                                                        Foreground="{StaticResource Ok}" VerticalAlignment="Center" Margin="0,0,9,0"/>
+                                    <TextBlock Grid.Column="1" x:Name="SettingsUpdateStatus" Foreground="{StaticResource TxtMid}"
+                                               FontSize="12.5" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="2" x:Name="SettingsUpdateNowBtn" Style="{StaticResource Btn.Primary}"
+                                            Height="34" MinHeight="34" Padding="14,0" FontSize="12.5" Margin="12,0,0,0"
+                                            Visibility="Collapsed" Click="SettingsUpdateNow_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <ico:PackIconLucide Kind="Download" Width="13" Height="13" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBlock Text="{loc:Tr Update_Now}" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+                            </Border>
+                            <TextBlock Text="{loc:Tr Settings_ReportDesc}" Foreground="{StaticResource TxtLo}"
+                                       FontSize="11.5" TextWrapping="Wrap" LineHeight="18" Margin="0,4,0,0"/>
+                            <TextBlock Text="{loc:Tr Settings_Credits}" Foreground="{StaticResource TxtLo}"
+                                       FontSize="10.5" TextWrapping="Wrap" LineHeight="17" Margin="0,10,0,0" Opacity="0.8"/>
+                            </StackPanel>
+                        </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
         <!-- ══════════ SHUTDOWN ══════════ -->
         <!-- Shown while the virtual LAN is taken down on close, so the couple of seconds
              that costs reads as work in progress rather than a frozen window. -->
@@ -1585,6 +2225,18 @@
                 </StackPanel>
             </Border>
         </Grid>
+
+        <!-- ══════════ TOAST OVERLAY ══════════ -->
+        <!--
+          Bottom corner rather than mid-screen: transient feedback shouldn't land on
+          top of whatever the user is reading. The bottom margin clears the composer.
+          Under RTL, HorizontalAlignment="Right" is the physical LEFT edge — away from
+          the member sidebar. The panel has no background, so only the toasts
+          themselves take the mouse; each one is dismissable.
+        -->
+        <StackPanel x:Name="ToastPanel" Grid.RowSpan="3"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Right"
+                    Margin="18,0,18,86" Width="330"/>
 
         <!-- ══════════ FOOTER ══════════ -->
         <Border x:Name="Footer" Grid.Row="2" Padding="20,8">

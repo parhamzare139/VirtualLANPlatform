@@ -32,7 +32,22 @@ public sealed class MemberSyncPayload
 
 public sealed class MemberDto
 {
-    [JsonPropertyName("username")] public string Username { get; set; } = "";
+    [JsonPropertyName("username")] public string  Username { get; set; } = "";
+    [JsonPropertyName("status")]   public string? Status   { get; set; }
+}
+
+/// <summary>What a member is doing: online / game / away. Sent by its owner, relayed by the host.</summary>
+public sealed class PresencePayload
+{
+    [JsonPropertyName("u")] public string Username { get; set; } = "";
+    [JsonPropertyName("s")] public string Status   { get; set; } = "online";
+
+    public byte[] Serialize() => JsonSerializer.SerializeToUtf8Bytes(this);
+    public static PresencePayload? Deserialize(byte[] data)
+    {
+        try { return JsonSerializer.Deserialize<PresencePayload>(data); }
+        catch { return null; }
+    }
 }
 
 /// <summary>Host → guest command. <see cref="Op"/> is one of mute / kick / stopshare.</summary>

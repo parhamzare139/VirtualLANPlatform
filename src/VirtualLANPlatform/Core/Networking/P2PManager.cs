@@ -37,6 +37,38 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
     public bool IsEncrypted(int peerId) => _sessionKeys.ContainsKey(peerId);
 
+    /// <summary>Everyone currently connected (host: all guests; guest: the host).</summary>
+    public IReadOnlyCollection<PeerInfo> Peers => _peers.Values.ToList();
+
+    /// <summary>
+    /// Host only. When set, a frame of a relayable type received from one guest is
+    /// re-sent to every other guest wrapped as <see cref="MessageType.Relayed"/>. Guests
+    /// connect only to the host, so without this a three-person room is really three
+    /// two-person rooms: a guest's chat, voice and screen never reach the other guests.
+    /// </summary>
+    public bool RelayAsHost { get; set; }
+
+    /// <summary>Round-trip time to a peer in ms, or -1 when unknown. Relayed (virtual)
+    /// peers report the host's RTT, since that is the only leg we can measure.</summary>
+    public int GetRtt(int peerId)
+    {
+        var net = _net;
+        if (net == null) return -1;
+        if (peerId < 0) peerId = _peers.Keys.FirstOrDefault(-1);
+        return net.GetPeerById(peerId) is NetPeer p ? p.RoundTripTime : -1;
+    }
+
+    /// <summary>Totals since the transport started. Bytes include LiteNetLib headers.</summary>
+    public (long BytesSent, long BytesReceived, long PacketsSent, long PacketLoss) GetStatistics()
+    {
+        var st = _net?.Statistics;
+        return st == null ? (0, 0, 0, 0) : (st.BytesSent, st.BytesReceived, st.PacketsSent, st.PacketLoss);
+    }
+
+    /// <summary>Id under which a relayed guest appears on this side — negative so it can
+    /// never collide with a real LiteNetLib peer id.</summary>
+    public static int VirtualPeerId(int originPeerId) => -1000 - originPeerId;
+
     // Written on the dedicated P2P-Poll thread (every LiteNetLib callback runs there)
     // and read from the UI thread via PeerCount/IsEncrypted — must be thread-safe.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, PeerInfo>  _peers            = new();
@@ -75,7 +107,8 @@ public sealed class P2PManager : INetEventListener, IDisposable
     // ── Guest ─────────────────────────────────────────────────────────────────
 
     public async Task<bool> ConnectAsGuestAsync(
-        string hostIp, ushort hostPort, string username, CancellationToken ct = default)
+        string hostIp, ushort hostPort, string username, CancellationToken ct = default,
+        TimeSpan? timeout = null)
     {
         Role = PeerRole.Guest;
 
@@ -118,9 +151,9 @@ public sealed class P2PManager : INetEventListener, IDisposable
 
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(15));
-            return await tcs.Task.WaitAsync(timeout.Token);
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            limit.CancelAfter(timeout ?? TimeSpan.FromSeconds(15));
+            return await tcs.Task.WaitAsync(limit.Token);
         }
         catch (OperationCanceledException)
         {
@@ -283,6 +316,21 @@ public sealed class P2PManager : INetEventListener, IDisposable
                 catch (CryptographicException) { return; }
             }
 
+            if (frame.Type == MessageType.Relayed)
+            {
+                // Only ever host → guest. Unwrap and surface it as if the origin guest
+                // were directly connected, under a stable virtual id.
+                if (Role == PeerRole.Host || frame.Payload.Length < 5) return;
+                var span   = frame.Payload.Span;
+                int origin = span[0] << 24 | span[1] << 16 | span[2] << 8 | span[3];
+                var inner  = new MessageFrame((MessageType)span[4], frame.Payload.Slice(5).ToArray());
+                MessageReceived?.Invoke(VirtualPeerId(origin), inner);
+                return;
+            }
+
+            if (RelayAsHost && Role == PeerRole.Host && IsRelayable(frame.Type))
+                Relay(peer.Id, frame, deliveryMethod);
+
             MessageReceived?.Invoke(peer.Id, frame);
         }
         catch { }
@@ -292,6 +340,34 @@ public sealed class P2PManager : INetEventListener, IDisposable
     public void OnNetworkError(IPEndPoint endPoint, SocketError socketError)
         => ConnectionFailed?.Invoke(Loc.T("P2p_NetError"), $"{socketError}");
     public void OnNetworkReceiveUnconnected(IPEndPoint _, NetPacketReader __, UnconnectedMessageType ___) { }
+
+    // ── Relay (host) ──────────────────────────────────────────────────────────
+
+    private static bool IsRelayable(MessageType t) => t is
+        MessageType.TextChat or MessageType.ChatControl or MessageType.VoiceData or
+        MessageType.ScreenShareStart or MessageType.ScreenShareFrame or
+        MessageType.ScreenShareStop or MessageType.ScreenShareAudio or
+        MessageType.Presence or MessageType.Typing;
+
+    private void Relay(int originPeerId, MessageFrame frame, DeliveryMethod method)
+    {
+        var net = _net;
+        if (net == null || net.ConnectedPeersCount < 2) return;
+
+        byte[] body = new byte[5 + frame.Payload.Length];
+        body[0] = (byte)(originPeerId >> 24);
+        body[1] = (byte)(originPeerId >> 16);
+        body[2] = (byte)(originPeerId >> 8);
+        body[3] = (byte)originPeerId;
+        body[4] = (byte)frame.Type;
+        frame.Payload.Span.CopyTo(body.AsSpan(5));
+
+        // Screen frames are big; a reliable-ordered relay of them would head-of-line
+        // block chat behind video. Keep whatever channel the sender chose.
+        foreach (var peer in net)
+            if (peer.Id != originPeerId)
+                SendToPeerInternal(peer, MessageType.Relayed, body, method);
+    }
 
     // ── Key exchange ──────────────────────────────────────────────────────────
 
@@ -324,7 +400,8 @@ public sealed class P2PManager : INetEventListener, IDisposable
         IPv6Enabled                = false,
         UnconnectedMessagesEnabled = false,
         PingInterval               = 2000,
-        DisconnectTimeout          = 30000
+        DisconnectTimeout          = 30000,
+        EnableStatistics           = true
     };
 
     // Voice is the latency-critical consumer of PollEvents: whatever the poll

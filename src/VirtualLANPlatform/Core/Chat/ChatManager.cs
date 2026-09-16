@@ -19,6 +19,11 @@ public sealed class ChatManager : IDisposable
 
     public event Action<ChatMessage>? MessageReceived;
     public event Action<string>?      MessageDeleted;
+    /// <summary>(username, isTyping) — someone started or stopped writing.</summary>
+    public event Action<string, bool>? TypingChanged;
+
+    private DateTime _lastTypingSent = DateTime.MinValue;
+    private bool     _typingOn;
 
     public ChatManager(P2PManager p2p)
     {
@@ -50,6 +55,7 @@ public sealed class ChatManager : IDisposable
         };
 
         _p2p.SendToAll(MessageType.TextChat, payload.Serialize(), DeliveryMethod.ReliableOrdered);
+        _typingOn = false; // receivers clear the indicator when the message lands
 
         // Echo to self
         MessageReceived?.Invoke(new ChatMessage
@@ -63,6 +69,29 @@ public sealed class ChatManager : IDisposable
             ReplyToSender = replyTo?.Sender,
             ReplyToText   = replyTo?.Preview
         });
+    }
+
+    /// <summary>
+    /// Announces composer activity. "Typing" is re-sent at most every 2.5 s while text
+    /// keeps changing (receivers expire it after 5 s), and "stopped" goes out once.
+    /// Unreliable: a lost one is corrected by the next, and it must never queue
+    /// behind a big chat backlog.
+    /// </summary>
+    public void NotifyTyping(bool typing)
+    {
+        if (!_p2p.IsRunning) return;
+        var now = DateTime.UtcNow;
+        if (typing)
+        {
+            if (_typingOn && (now - _lastTypingSent).TotalSeconds < 2.5) return;
+            _lastTypingSent = now;
+        }
+        else if (!_typingOn) return;
+        _typingOn = typing;
+
+        _p2p.SendToAll(MessageType.Typing,
+            new TypingPayload { From = _myUsername, Typing = typing }.Serialize(),
+            DeliveryMethod.Unreliable);
     }
 
     /// <summary>Asks every peer to tombstone the message with this id, then does so locally.</summary>
@@ -112,6 +141,14 @@ public sealed class ChatManager : IDisposable
                     MessageDeleted?.Invoke(ctrl.Id);
                 break;
             }
+
+            case MessageType.Typing:
+            {
+                var t = TypingPayload.Deserialize(frame.Payload.ToArray());
+                if (t is { From.Length: > 0 } && t.From != _myUsername)
+                    TypingChanged?.Invoke(t.From, t.Typing);
+                break;
+            }
         }
     }
 
@@ -135,6 +172,19 @@ file sealed class ChatPayload
     public static ChatPayload? Deserialize(byte[] data)
     {
         try { return JsonSerializer.Deserialize<ChatPayload>(data); }
+        catch { return null; }
+    }
+}
+
+file sealed class TypingPayload
+{
+    [JsonPropertyName("u")] public string From   { get; set; } = "";
+    [JsonPropertyName("t")] public bool   Typing { get; set; }
+
+    public byte[] Serialize() => JsonSerializer.SerializeToUtf8Bytes(this);
+    public static TypingPayload? Deserialize(byte[] data)
+    {
+        try { return JsonSerializer.Deserialize<TypingPayload>(data); }
         catch { return null; }
     }
 }

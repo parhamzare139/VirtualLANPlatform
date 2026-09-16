@@ -1,3 +1,5 @@
+using VirtualLANPlatform.Core.Services;
+
 namespace VirtualLANPlatform.Core.Room;
 
 public sealed record MemberRecord(
@@ -6,4 +8,5 @@ public sealed record MemberRecord(
     DateTime JoinedAt)
 {
     public DateTime? LeftAt { get; init; }
+    public Presence  Status { get; init; } = Presence.Online;
 }

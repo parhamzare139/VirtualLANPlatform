@@ -40,7 +40,8 @@ public sealed record UpnpProbe(
     string?   RouterName = null,
     string?   GatewayIp  = null,
     string?   LocalIp    = null,
-    string?   ExternalIp = null);
+    string?   ExternalIp = null,
+    string?   ObservedIp = null);
 
 /// <summary>
 /// Asks the home router to forward a UDP port to this machine, over UPnP IGD.
@@ -77,6 +78,15 @@ public sealed class PortMapper : IDisposable
     /// <summary>The router's public address, once discovered.</summary>
     public string? ExternalIp { get; private set; }
 
+    /// <summary>The address a server on the internet saw us from, if one answered.</summary>
+    public string? ObservedIp { get; private set; }
+
+    /// <summary>
+    /// This machine's address on the LAN the router was found on — the one the mapping
+    /// points at, and the one a guest sitting on the same LAN should dial directly.
+    /// </summary>
+    public string? LanIp => _localIp?.ToString();
+
     /// <summary>True while a mapping this object created is live on the router.</summary>
     public bool IsMapped => _mappedPort != 0;
 
@@ -104,8 +114,23 @@ public sealed class PortMapper : IDisposable
 
             ExternalIp = await GetExternalIpAsync(ct).ConfigureAwait(false);
 
-            var state = IsReachableFromInternet(ExternalIp) ? UpnpState.Available : UpnpState.CarrierNat;
-            return new UpnpProbe(state, _routerName, gatewayIp, localIp.ToString(), ExternalIp);
+            // The address-range test alone is not enough. Some ISPs put a second NAT
+            // above the customer's router and hand the router an address from real
+            // public space, so it looks routable and is not: every forward the router
+            // accepts leads nowhere. The only way to tell is to ask a server on the
+            // internet what address it sees us from and compare.
+            string? observed = await StunObservedIpAsync(localIp, ct).ConfigureAwait(false);
+            ObservedIp = observed;
+
+            UpnpState state;
+            if (!IsReachableFromInternet(ExternalIp))
+                state = UpnpState.CarrierNat;
+            else if (observed != null && observed != ExternalIp)
+                state = UpnpState.CarrierNat;          // router is not the edge
+            else
+                state = UpnpState.Available;           // matched, or STUN unreachable: trust the router
+
+            return new UpnpProbe(state, _routerName, gatewayIp, localIp.ToString(), ExternalIp, observed);
         }
         catch (OperationCanceledException) { throw; }
         catch { return new UpnpProbe(UpnpState.NotFound); }
@@ -174,6 +199,82 @@ public sealed class PortMapper : IDisposable
         ushort port = _mappedPort;
         _mappedPort = 0;
         try { await DeleteMappingAsync(port, CancellationToken.None).ConfigureAwait(false); } catch { }
+    }
+
+    // ── STUN ─────────────────────────────────────────────────────────────────
+
+    // Several servers: any one of them may be blocked on a filtered connection, and a
+    // blocked probe must read as "unknown", never as "reachable".
+    private static readonly string[] StunServers =
+    [
+        "stun.l.google.com:19302",
+        "stun1.l.google.com:19302",
+        "stun.cloudflare.com:3478",
+        "stun.nextcloud.com:3478"
+    ];
+
+    /// <summary>
+    /// The public IPv4 an outside server sees this machine's UDP traffic arriving from,
+    /// or null if no STUN server answered. Sent from <paramref name="localIp"/> so the
+    /// probe leaves by the same interface the port mapping points at.
+    /// </summary>
+    private static async Task<string?> StunObservedIpAsync(IPAddress localIp, CancellationToken ct)
+    {
+        foreach (string server in StunServers)
+        {
+            try
+            {
+                string[] parts = server.Split(':');
+                var addrs  = await System.Net.Dns.GetHostAddressesAsync(parts[0], ct).ConfigureAwait(false);
+                var v4     = addrs.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+                if (v4 == null) continue;
+                var target = new IPEndPoint(v4, int.Parse(parts[1]));
+
+                using var udp = new UdpClient(new IPEndPoint(localIp, 0));
+
+                // RFC 5389 Binding Request: type, zero length, magic cookie, transaction id.
+                byte[] req = new byte[20];
+                req[0] = 0x00; req[1] = 0x01;
+                req[4] = 0x21; req[5] = 0x12; req[6] = 0xA4; req[7] = 0x42;
+                Random.Shared.NextBytes(req.AsSpan(8, 12));
+
+                await udp.SendAsync(req, req.Length, target).ConfigureAwait(false);
+                var receive = udp.ReceiveAsync(ct).AsTask();
+                if (await Task.WhenAny(receive, Task.Delay(2500, ct)).ConfigureAwait(false) != receive) continue;
+
+                string? seen = ParseMappedAddress(receive.Result.Buffer);
+                if (seen != null) return seen;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { /* next server */ }
+        }
+        return null;
+    }
+
+    /// <summary>Pulls the IPv4 out of XOR-MAPPED-ADDRESS (or the legacy MAPPED-ADDRESS).</summary>
+    private static string? ParseMappedAddress(byte[] resp)
+    {
+        if (resp.Length < 20) return null;
+        int p = 20;
+        while (p + 4 <= resp.Length)
+        {
+            int type = resp[p] << 8 | resp[p + 1];
+            int len  = resp[p + 2] << 8 | resp[p + 3];
+            if (p + 4 + len > resp.Length) break;
+
+            if (type == 0x0020 && len >= 8 && resp[p + 5] == 0x01)      // XOR-MAPPED-ADDRESS, IPv4
+                return new IPAddress(new[]
+                {
+                    (byte)(resp[p + 8]  ^ 0x21), (byte)(resp[p + 9]  ^ 0x12),
+                    (byte)(resp[p + 10] ^ 0xA4), (byte)(resp[p + 11] ^ 0x42)
+                }).ToString();
+
+            if (type == 0x0001 && len >= 8 && resp[p + 5] == 0x01)      // MAPPED-ADDRESS, IPv4
+                return new IPAddress(resp.AsSpan(p + 8, 4).ToArray()).ToString();
+
+            p += 4 + len + ((4 - len % 4) % 4);
+        }
+        return null;
     }
 
     // ── SSDP discovery ───────────────────────────────────────────────────────

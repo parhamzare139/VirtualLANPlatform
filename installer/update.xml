@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <item>
-    <version>1.0.8</version>
-    <url>https://github.com/parhamzare139/VirtualLANPlatform/releases/download/v1.0.8/VirtualLANPlatform_Setup_v1.0.8.exe</url>
-    <changelog>https://github.com/parhamzare139/VirtualLANPlatform/releases/tag/v1.0.8</changelog>
+    <version>1.0.9</version>
+    <url>https://github.com/parhamzare139/VirtualLANPlatform/releases/download/v1.0.9/VirtualLANPlatform_Setup_v1.0.9.exe</url>
+    <changelog>https://github.com/parhamzare139/VirtualLANPlatform/releases/tag/v1.0.9</changelog>
     <mandatory>false</mandatory>
 </item>

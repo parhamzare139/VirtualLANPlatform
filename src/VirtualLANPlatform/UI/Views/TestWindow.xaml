@@ -2105,7 +2105,7 @@
                                     <TextBlock Text="Virtual LAN Platform" Foreground="{StaticResource TxtHi}"
                                                FontSize="14.5" FontWeight="Bold" FontFamily="Segoe UI"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
-                                        <TextBlock x:Name="AboutVersion" Text="v1.0.8" Foreground="{StaticResource TxtLo}"
+                                        <TextBlock x:Name="AboutVersion" Text="v1.0.9" Foreground="{StaticResource TxtLo}"
                                                    FontSize="11.5" FontFamily="Consolas" VerticalAlignment="Center"/>
                                         <TextBlock Text=" · " Foreground="{StaticResource TxtLo}" FontSize="11.5"/>
                                         <TextBlock Foreground="{StaticResource TxtLo}" FontSize="11.5" VerticalAlignment="Center">
@@ -2245,7 +2245,7 @@
                            HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Run Text="Virtual LAN Platform"/>
                     <Run Text=" · "/>
-                    <Run Text="v1.0.8" FontFamily="Consolas"/>
+                    <Run Text="v1.0.9" FontFamily="Consolas"/>
                 </TextBlock>
                 <Button Style="{StaticResource Btn.Nav}" HorizontalAlignment="Left"
                         Foreground="{StaticResource TxtLo}" Padding="8,4"

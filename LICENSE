@@ -1,181 +1,21 @@
-# VirtualLANPlatform — مجوز نرم‌افزار اختصاصی
+Copyright (c) 2026 VirtualLAN Platform. All rights reserved.
 
-**Copyright © 2026 Parham Zare. All rights reserved.**
-**کپی‌رایت © ۲۰۲۶ Parham Zare. تمامی حقوق محفوظ است.**
+PROPRIETARY FREEWARE LICENSE
 
----
+This software is provided free of charge for personal and non-commercial use.
+The source code is NOT open-source and remains the exclusive property of the author.
 
-## English Version
+PERMITTED:
+  - Use the software free of charge
+  - Share the original installer/executable with others
 
-### 1. Grant of License
+PROHIBITED:
+  - Copying, modifying, or distributing the source code
+  - Reverse engineering or decompiling the software
+  - Selling or sublicensing the software
+  - Using the software for commercial purposes without written permission
 
-Subject to the terms of this License, Parham Zare ("Copyright Holder") grants you a limited, non-exclusive, non-transferable, revocable license to download, install, and use an officially distributed compiled version of VirtualLANPlatform.
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+THE AUTHOR IS NOT LIABLE FOR ANY DAMAGES ARISING FROM ITS USE.
 
-This license does not transfer ownership of the Software or any intellectual property rights to you.
-
-### 2. Permitted Use
-
-You may:
-
-* Download VirtualLANPlatform from an official distribution channel.
-* Install and use the officially distributed version of the Software.
-* Use the Software for personal purposes.
-* Use the Software for internal purposes within an organization.
-* Keep reasonable backup copies of the official installer for your own use.
-
-### 3. Restrictions
-
-Unless you have received prior written permission from Parham Zare, you may not:
-
-* Copy, reproduce, or redistribute the Software or substantial portions of it.
-* Sell, rent, lease, sublicense, or commercially redistribute the Software.
-* Modify, adapt, or create derivative works based on the Software.
-* Publish, upload, mirror, or distribute the source code.
-* Publish or distribute modified versions of the Software.
-* Reverse engineer, decompile, disassemble, or attempt to obtain the source code, except where such restriction is prohibited by applicable law.
-* Remove or alter copyright, license, trademark, or proprietary notices.
-* Present an unofficial or modified version as an official VirtualLANPlatform release.
-* Use the VirtualLANPlatform name, logo, or branding in a way that suggests official endorsement or affiliation without permission.
-
-### 4. Source Code
-
-The source code of VirtualLANPlatform is proprietary and is not publicly licensed.
-
-No rights to access, copy, modify, publish, distribute, or create derivative works from the source code are granted under this License.
-
-Any access to the source code provided separately by Parham Zare is subject to the terms of a separate written agreement.
-
-### 5. Releases and Updates
-
-Official releases may be distributed through GitHub Releases or other official distribution channels designated by Parham Zare.
-
-Parham Zare reserves the right to release updates, modify features, discontinue versions, or discontinue distribution of the Software at any time.
-
-### 6. Intellectual Property
-
-All intellectual property rights in VirtualLANPlatform, including its source code, software architecture, user interface, graphics, documentation, name, logo, and other original materials, remain the property of Parham Zare or their respective licensors.
-
-Nothing in this License transfers ownership of any intellectual property rights.
-
-### 7. Third-Party Components
-
-VirtualLANPlatform may include or depend on third-party software components that are distributed under their own licenses.
-
-Such components remain subject to their respective license terms. Where applicable, third-party license notices are provided with the Software or in the relevant documentation.
-
-### 8. Disclaimer of Warranty
-
-THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW.
-
-### 9. Limitation of Liability
-
-TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, PARHAM ZARE SHALL NOT BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES ARISING FROM OR RELATED TO THE USE OR INABILITY TO USE THE SOFTWARE.
-
-### 10. Termination
-
-This License remains effective until terminated.
-
-Your rights under this License automatically terminate if you materially violate its terms.
-
-Upon termination, you must stop using the Software and delete unauthorized copies where required by applicable law.
-
-### 11. Changes to This License
-
-Parham Zare may update this License for future versions of VirtualLANPlatform.
-
-The license applicable to a particular version is the license accompanying that version.
-
-### 12. Contact
-
-For licensing permissions, redistribution requests, commercial licensing, source-code access, or other licensing inquiries, contact Parham Zare through the official VirtualLANPlatform project channels.
-
----
-
-## نسخه فارسی
-
-### ۱. اعطای مجوز
-
-با رعایت شرایط این مجوز، **Parham Zare** («مالک حقوق») به شما مجوزی محدود، غیرانحصاری، غیرقابل انتقال و قابل لغو برای دانلود، نصب و استفاده از نسخه رسمی و کامپایل‌شده VirtualLANPlatform اعطا می‌کند.
-
-این مجوز به معنی انتقال مالکیت نرم‌افزار یا حقوق مالکیت فکری آن به شما نیست.
-
-### ۲. استفاده‌های مجاز
-
-شما مجاز هستید:
-
-* VirtualLANPlatform را از منابع رسمی دانلود کنید.
-* نسخه رسمی نرم‌افزار را نصب و استفاده کنید.
-* از نرم‌افزار برای استفاده شخصی استفاده کنید.
-* از نرم‌افزار برای استفاده داخلی در یک سازمان استفاده کنید.
-* برای استفاده شخصی خود، نسخه پشتیبان معقولی از فایل نصب رسمی نگهداری کنید.
-
-### ۳. محدودیت‌ها
-
-بدون دریافت اجازه کتبی قبلی از **Parham Zare**، شما مجاز نیستید:
-
-* نرم‌افزار یا بخش قابل‌توجهی از آن را کپی یا بازتوزیع کنید.
-* نرم‌افزار را بفروشید، اجاره دهید، واگذار کنید یا به‌صورت تجاری بازتوزیع کنید.
-* نرم‌افزار را تغییر دهید، اقتباس کنید یا نسخه مشتق‌شده ایجاد کنید.
-* کد منبع نرم‌افزار را منتشر، آپلود، Mirror یا توزیع کنید.
-* نسخه‌های تغییر‌یافته نرم‌افزار را منتشر یا توزیع کنید.
-* نرم‌افزار را مهندسی معکوس، Decompile یا Disassemble کنید یا برای دستیابی به کد منبع آن تلاش کنید؛ مگر در مواردی که منع چنین اقدامی طبق قوانین لازم‌الاجرا مجاز نباشد.
-* اطلاعیه‌های Copyright، License، Trademark یا سایر اطلاعیه‌های مالکیتی را حذف یا تغییر دهید.
-* نسخه غیررسمی یا تغییر‌یافته را به‌عنوان نسخه رسمی VirtualLANPlatform معرفی کنید.
-* بدون اجازه، از نام، لوگو یا برند VirtualLANPlatform به شکلی استفاده کنید که نشان‌دهنده تأیید یا وابستگی رسمی باشد.
-
-### ۴. کد منبع
-
-کد منبع VirtualLANPlatform یک اثر اختصاصی و مالکیتی است و تحت یک مجوز عمومی منتشر نشده است.
-
-این مجوز هیچ حقی برای دسترسی، کپی، تغییر، انتشار، توزیع یا ایجاد آثار مشتق‌شده از کد منبع اعطا نمی‌کند.
-
-هرگونه دسترسی به کد منبع که به‌صورت جداگانه توسط Parham Zare ارائه شود، تابع شرایط یک توافق‌نامه کتبی جداگانه خواهد بود.
-
-### ۵. نسخه‌ها و به‌روزرسانی‌ها
-
-نسخه‌های رسمی VirtualLANPlatform ممکن است از طریق GitHub Releases یا سایر کانال‌های رسمی تعیین‌شده توسط Parham Zare منتشر شوند.
-
-Parham Zare حق انتشار به‌روزرسانی‌ها، تغییر قابلیت‌ها، توقف پشتیبانی از نسخه‌ها یا توقف انتشار نرم‌افزار را برای خود محفوظ می‌دارد.
-
-### ۶. مالکیت فکری
-
-تمام حقوق مالکیت فکری VirtualLANPlatform، از جمله کد منبع، معماری نرم‌افزار، رابط کاربری، گرافیک، مستندات، نام، لوگو و سایر آثار اصلی، متعلق به **Parham Zare** یا صاحبان مربوطه است.
-
-هیچ بخشی از این مجوز به معنی انتقال مالکیت حقوق مالکیت فکری نیست.
-
-### ۷. اجزای نرم‌افزاری شخص ثالث
-
-VirtualLANPlatform ممکن است شامل یا وابسته به نرم‌افزارها و کتابخانه‌های شخص ثالثی باشد که تحت مجوزهای جداگانه منتشر شده‌اند.
-
-این اجزا همچنان تابع شرایط مجوزهای مربوط به خود هستند. در صورت لزوم، اطلاعیه‌ها و مجوزهای مربوط به اجزای شخص ثالث همراه نرم‌افزار یا در مستندات مربوطه ارائه می‌شوند.
-
-### ۸. سلب ضمانت
-
-نرم‌افزار «همان‌گونه که هست» و «در صورت موجود بودن» ارائه می‌شود و تا حداکثر میزان مجاز طبق قوانین لازم‌الاجرا، هیچ‌گونه ضمانت صریح یا ضمنی برای آن ارائه نمی‌شود.
-
-### ۹. محدودیت مسئولیت
-
-تا حداکثر میزان مجاز طبق قوانین لازم‌الاجرا، **Parham Zare** در قبال خسارات غیرمستقیم، اتفاقی، خاص، تبعی یا تنبیهی ناشی از استفاده یا عدم امکان استفاده از نرم‌افزار مسئول نخواهد بود.
-
-### ۱۰. خاتمه مجوز
-
-این مجوز تا زمان خاتمه معتبر است.
-
-در صورت نقض اساسی شرایط این مجوز، حقوق اعطا‌شده به شما به‌صورت خودکار خاتمه می‌یابد.
-
-پس از خاتمه، باید استفاده از نرم‌افزار را متوقف کرده و در مواردی که قانون لازم می‌داند، نسخه‌های غیرمجاز آن را حذف کنید.
-
-### ۱۱. تغییرات این مجوز
-
-Parham Zare می‌تواند برای نسخه‌های آینده VirtualLANPlatform این مجوز را به‌روزرسانی کند.
-
-مجوز قابل اعمال برای هر نسخه، همان مجوزی است که همراه آن نسخه منتشر می‌شود.
-
-### ۱۲. تماس
-
-برای درخواست مجوز استفاده، بازتوزیع، استفاده تجاری، دسترسی به کد منبع یا سایر مسائل مربوط به مجوز، از طریق کانال‌های رسمی پروژه VirtualLANPlatform با **Parham Zare** تماس بگیرید.
-
----
-
-**Copyright © 2026 Parham Zare. All rights reserved.**
-**کپی‌رایت © ۲۰۲۶ Parham Zare. تمامی حقوق محفوظ است.**
+For permissions beyond this license, contact: [contact information will be added]

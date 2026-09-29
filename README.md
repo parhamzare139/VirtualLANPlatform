@@ -1,7 +1,7 @@
 [README.md](https://github.com/user-attachments/files/32817551/README.md)
 <div align="center">
 
-<img src="installer/wizard-small-250.png" width="112" alt="Virtual LAN Platform">
+
 
 # Virtual LAN Platform
 
